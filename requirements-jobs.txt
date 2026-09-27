@@ -1,0 +1,8 @@
+# GitHub Actions 排程用（不含 UI 套件，安裝較快）
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+pandas>=2.2
+httpx>=0.27
+requests>=2.32
+openai>=1.50
+pytest>=8.0

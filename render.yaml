@@ -1,0 +1,52 @@
+# Render Blueprint：Dashboard → New → Blueprint，選這個 repo 即可一次建立兩個服務。
+# 兩者都在免費方案內；Web Service 閒置 15 分鐘休眠，Static Site 不休眠。
+services:
+  - type: web
+    name: stock-ai-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DATABASE_URL
+        sync: false          # 貼上 Neon 的 pooled 連線字串
+      - key: WATCHLIST
+        value: "2330,2317,2454"
+      - key: LLM_PROVIDERS
+        value: "gemini,groq,openrouter,cerebras"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
+      - key: PUBLIC_BASE_URL
+        sync: false          # 例如 https://stock-ai-api.onrender.com
+      - key: CORS_ORIGINS
+        value: "*"           # 上線後改成 PWA 的網址
+      - key: ENABLE_GRADIO
+        value: "true"
+      - key: ENABLE_DASH
+        value: "true"
+
+  - type: web
+    name: stock-ai-pwa
+    runtime: static
+    buildCommand: echo "static"
+    staticPublishPath: ./pwa
+    headers:
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache
+      - path: /config.js
+        name: Cache-Control
+        value: no-cache

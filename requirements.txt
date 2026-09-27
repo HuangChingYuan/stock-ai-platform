@@ -1,0 +1,13 @@
+# Render Web Service（FastAPI + Gradio + Dash）
+fastapi>=0.115
+uvicorn[standard]>=0.30
+gradio>=5.0
+dash>=2.18
+a2wsgi>=1.10
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+pandas>=2.2
+plotly>=5.24
+httpx>=0.27
+requests>=2.32
+openai>=1.50
