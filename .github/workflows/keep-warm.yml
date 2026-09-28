@@ -1,0 +1,17 @@
+# 選用：台股盤中（台灣 09:00–13:59）每 14 分鐘喚醒 Render，避開 15 分鐘休眠。
+# 只有一個 Render Web Service 時，盤中常駐所用時數遠低於每月 750 小時。
+# 需在 Settings > Variables 設定 RENDER_URL，例如 https://stock-ai-api.onrender.com
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/14 1-5 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    if: ${{ vars.RENDER_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - run: curl -fsS --max-time 90 "${{ vars.RENDER_URL }}/health"

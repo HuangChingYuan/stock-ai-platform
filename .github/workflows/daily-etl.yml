@@ -1,0 +1,54 @@
+# 每個交易日盤後：擷取資料 → 計算指標 → LLM 報告 → Telegram 推播
+# 排程時間為 UTC；10:30 UTC = 台灣 18:30。GitHub 排程可能延遲數分鐘到數十分鐘。
+name: daily-etl
+
+on:
+  schedule:
+    - cron: "30 10 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      stocks:
+        description: "指定股票（逗號分隔，留空用預設清單）"
+        required: false
+      no_llm:
+        description: "不呼叫 LLM（改用規則式報告）"
+        type: boolean
+        default: false
+
+concurrency:
+  group: daily-etl
+  cancel-in-progress: false
+
+jobs:
+  etl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      WATCHLIST: ${{ vars.WATCHLIST }}
+      LLM_PROVIDERS: ${{ vars.LLM_PROVIDERS }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_DEFAULT_CHAT_IDS: ${{ vars.TELEGRAM_DEFAULT_CHAT_IDS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-jobs.txt
+      - run: pip install -r requirements-jobs.txt
+      - run: python -m pytest -q tests
+      - name: Run ETL
+        env:
+          INPUT_STOCKS: ${{ inputs.stocks }}
+          INPUT_NO_LLM: ${{ inputs.no_llm }}
+        run: |
+          ARGS=()
+          if [ -n "$INPUT_STOCKS" ]; then ARGS+=(--stocks "$INPUT_STOCKS"); fi
+          if [ "$INPUT_NO_LLM" = "true" ]; then ARGS+=(--no-llm); fi
+          python -m jobs.daily_etl "${ARGS[@]}"
