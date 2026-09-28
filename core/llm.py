@@ -30,13 +30,13 @@ class Provider:
 PROVIDERS: dict[str, Provider] = {
     # Google AI Studio：免費層目前只含 Flash / Flash-Lite 系列
     "gemini": Provider("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/",
-                       "GEMINI_API_KEY", "GEMINI_MODEL", "gemini-2.5-flash"),
+                       "GEMINI_API_KEY", "GEMINI_MODEL", "gemini-3.8-flash"),
     # Groq：速度快，每分鐘與每日請求數有上限
     "groq": Provider("groq", "https://api.groq.com/openai/v1",
-                     "GROQ_API_KEY", "GROQ_MODEL", "llama-3.3-70b-versatile"),
+                     "GROQ_API_KEY", "GROQ_MODEL", "openai/gpt-oss-120b"),
     # OpenRouter：模型名稱帶 :free 後綴者為免費
     "openrouter": Provider("openrouter", "https://openrouter.ai/api/v1",
-                           "OPENROUTER_API_KEY", "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+                           "OPENROUTER_API_KEY", "OPENROUTER_MODEL", "openrouter/free"),
     # Cerebras：每日 token 額度較大，適合批次
     "cerebras": Provider("cerebras", "https://api.cerebras.ai/v1",
                          "CEREBRAS_API_KEY", "CEREBRAS_MODEL", "llama-3.3-70b"),
@@ -58,7 +58,7 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
-def chat_json(system: str, user: str, max_tokens: int = 1200) -> tuple[dict, str, str] | None:
+def chat_json(system: str, user: str, max_tokens: int = 4000) -> tuple[dict, str, str] | None:
     """回傳 (解析後的 JSON, provider 名稱, 模型名稱)；全部失敗回傳 None。"""
     from openai import OpenAI  # 延遲匯入：Streamlit 等不需要 LLM 的地方不必安裝
 
