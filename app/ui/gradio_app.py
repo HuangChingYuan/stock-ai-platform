@@ -15,14 +15,16 @@ from core import repository as repo
 from core.config import get_settings
 from core.db import session_scope
 
+PERIODS = {"3 個月": 66, "6 個月": 130, "1 年": 250}
 
-def render(stock_id: str):
+def render(stock_id: str, period: str = "6 個月"):
+    days = PERIODS.get(period, 130)
     stock_id = (stock_id or "").strip().upper()
     if not stock_id:
         return charts._empty("請輸入股票代號"), "", ""
     with session_scope() as s:
-        prices = repo.prices_df(s, stock_id, 180)
-        ind = repo.indicators_df(s, stock_id, 180)
+        prices = repo.prices_df(s, stock_id, days)
+        ind = repo.indicators_df(s, stock_id, days)
         name = repo.stock_name(s, stock_id)
         sig = ta.signals(ind, prices)
         md = rpt.to_markdown(repo.latest_report(s, stock_id), name)
@@ -45,6 +47,7 @@ def build() -> gr.Blocks:
         with gr.Row():
             stock = gr.Dropdown(choices=watch, value=watch[0] if watch else None, allow_custom_value=True,
                                 label="股票代號", scale=1)
+            period = gr.Radio(list(PERIODS), value="6 個月", label="期間", scale=1)
             signal_md = gr.Markdown(scale=3)
         with gr.Tabs() as tabs:
             with gr.Tab("K 線與指標", id="chart"):
@@ -62,7 +65,8 @@ def build() -> gr.Blocks:
             return gr.update(value=sid), fig, sig_md, md, gr.Tabs(selected=view)
 
         demo.load(on_load, None, [stock, plot, signal_md, report_md, tabs])
-        stock.input(render, stock, [plot, signal_md, report_md])
+        stock.input(render, [stock, period], [plot, signal_md, report_md])
+        period.change(render, [stock, period], [plot, signal_md, report_md])
         regen.click(regenerate, stock, report_md, concurrency_limit=1)
     return demo
 

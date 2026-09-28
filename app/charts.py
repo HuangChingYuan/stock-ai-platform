@@ -42,7 +42,13 @@ def kline(prices: pd.DataFrame, ind: pd.DataFrame, title: str = "") -> go.Figure
                       margin=dict(l=40, r=20, t=40, b=20), xaxis_rangeslider_visible=False,
                       legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
                       font=dict(family="Noto Sans TC, sans-serif", color=INK))
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+    # 跳過週末與國定假日（春節、清明等沒有交易資料的日子）
+    dates = pd.to_datetime(df["date"])
+    holidays = pd.bdate_range(dates.min(), dates.max()).difference(dates)
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"]),
+                                  dict(values=holidays.strftime("%Y-%m-%d").tolist())])
+    fig.update_yaxes(range=[0, 100], row=3, col=1)   # KD 固定 0–100
+    fig.update_layout(hovermode="x unified")         # 滑過時同一天的價、量、KD 一起顯示
     return fig
 
 

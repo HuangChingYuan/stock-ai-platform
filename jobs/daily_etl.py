@@ -6,6 +6,8 @@ python -m jobs.daily_etl --no-llm --no-push
 """
 from __future__ import annotations
 
+from sqlalchemy import func, select
+
 import argparse
 import logging
 import time
@@ -46,7 +48,11 @@ def sync_stock(stock_id: str, days: int) -> None:
                     keys=["stock_id", "link"])
         full = repo.prices_df(s, stock_id, limit=300)
         if not full.empty:
-            ind = ta.compute(full).tail(20)  # 只回寫最近 20 日，減少寫入量
+            ind = ta.compute(full)
+            done = s.scalar(select(func.count()).select_from(Indicator)
+                            .where(Indicator.stock_id == stock_id))
+            if done >= len(ind) - 20:  # 已回補過：只寫最近 20 日
+                ind = ind.tail(20)
             repo.upsert(s, Indicator, [{"stock_id": stock_id, **r} for r in ind.to_dict("records")],
                         keys=["stock_id", "date"])
     log.info("%s：股價 %d、營收 %d、新聞 %d 筆", stock_id, len(prices), len(revenue), len(news))
