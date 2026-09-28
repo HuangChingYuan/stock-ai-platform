@@ -32,17 +32,18 @@ class Settings:
 
 @lru_cache
 def get_settings() -> Settings:
+    env = lambda k, d="": os.getenv(k) or d  # 空字串也視為未設定
     return Settings(
-        database_url=os.getenv("DATABASE_URL", "sqlite:///./local.db"),
-        finmind_token=os.getenv("FINMIND_TOKEN", ""),
-        watchlist=_list(os.getenv("WATCHLIST", "2330,2317,2454")),
-        llm_providers=_list(os.getenv("LLM_PROVIDERS", "gemini,groq,openrouter,cerebras")),
-        llm_min_interval=float(os.getenv("LLM_MIN_INTERVAL", "6")),
-        telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
-        telegram_webhook_secret=os.getenv("TELEGRAM_WEBHOOK_SECRET", ""),
-        telegram_default_chat_ids=_list(os.getenv("TELEGRAM_DEFAULT_CHAT_IDS", "")),
-        cors_origins=_list(os.getenv("CORS_ORIGINS", "*")),
-        enable_gradio=_bool(os.getenv("ENABLE_GRADIO", "true")),
-        enable_dash=_bool(os.getenv("ENABLE_DASH", "true")),
-        public_base_url=os.getenv("PUBLIC_BASE_URL", "").rstrip("/"),
+        database_url=env("DATABASE_URL", "sqlite:///./local.db"),
+        finmind_token=env("FINMIND_TOKEN"),
+        watchlist=_list(env("WATCHLIST", "2330,2317,2454")),
+        llm_providers=_list(env("LLM_PROVIDERS", "gemini,groq,openrouter,cerebras")),
+        llm_min_interval=float(env("LLM_MIN_INTERVAL", "6")),
+        telegram_bot_token=env("TELEGRAM_BOT_TOKEN"),
+        telegram_webhook_secret=env("TELEGRAM_WEBHOOK_SECRET"),
+        telegram_default_chat_ids=_list(env("TELEGRAM_DEFAULT_CHAT_IDS")),
+        cors_origins=_list(env("CORS_ORIGINS", "*")),
+        enable_gradio=_bool(env("ENABLE_GRADIO", "true")),
+        enable_dash=_bool(env("ENABLE_DASH", "true")),
+        public_base_url=env("PUBLIC_BASE_URL").rstrip("/"),
     )

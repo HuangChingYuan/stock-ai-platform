@@ -80,8 +80,11 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     init_db()
     with session_scope() as s:
-        stocks = args.stocks.split(",") if args.stocks else list(
-            dict.fromkeys(get_settings().watchlist + repo.watched_stock_ids(s)))
+        raw = args.stocks.split(",") if args.stocks else (
+            get_settings().watchlist + repo.watched_stock_ids(s))
+    stocks = list(dict.fromkeys(x.strip().upper() for x in raw if x.strip()))
+    if not stocks:
+        raise SystemExit("股票清單是空的：請設定 WATCHLIST 或用 --stocks 指定")
 
     failed = []
     for sid in stocks:
