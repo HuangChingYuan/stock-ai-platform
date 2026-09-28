@@ -40,9 +40,15 @@ app.include_router(telegram_router)
 UIS: dict[str, str] = {}
 
 
+from sqlalchemy import func, select
+from core.db import engine, session_scope
+from core.models import DailyPrice
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "uis": UIS}
+    with session_scope() as s:
+        rows = s.scalar(select(func.count()).select_from(DailyPrice))
+    return {"status": "ok", "db": engine.dialect.name, "price_rows": rows, "uis": UIS}
 
 
 @app.get("/")
