@@ -1,11 +1,18 @@
 """REST API：PWA 外殼、Streamlit 以外的前端、Telegram 共用。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+import logging
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import select
+
+from core import data_sources as ds
 from core import repository as repo
 from core.config import get_settings
 from core.db import session_scope
+from core.models import Watch
+
+log = logging.getLogger(__name__)
 
 
 def _cache(response: Response) -> None:
@@ -22,10 +29,15 @@ def _records(df):
 
 @router.get("/stocks")
 def list_stocks():
-    """自選股清單與最新報價（環境變數 WATCHLIST ＋ Telegram 使用者追蹤的股票）。"""
+    """自選股清單與最新報價（環境變數 WATCHLIST ＋ Telegram 與 PWA 加入的股票）。removable：可從 PWA 移除。"""
     with session_scope() as s:
         ids = list(dict.fromkeys(get_settings().watchlist + repo.watched_stock_ids(s)))
-        return repo.snapshots(s, ids)
+        pwa = set(_pwa_ids(s))
+        return [{**snap, "removable": snap["stock_id"] in pwa} for snap in repo.snapshots(s, ids)]
+
+
+def _pwa_ids(session) -> list[str]:
+    return list(session.scalars(select(Watch.stock_id).where(Watch.chat_id == repo.PWA_CHAT_ID)))
 
 
 @router.get("/stocks/{stock_id}/prices")
@@ -47,3 +59,48 @@ def report(stock_id: str):
         if r is None:
             raise HTTPException(404, "尚無報告")
         return {c.name: getattr(r, c.name) for c in r.__table__.columns}
+
+
+# 會寫入資料庫的端點：不掛 _cache，回應不能被瀏覽器快取
+watch_router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
+
+
+@watch_router.post("/{stock_id}")
+def add_watch(stock_id: str):
+    """PWA 按「查看」：加入自選股；資料庫還沒有這檔的股價就立刻向 FinMind 抓。"""
+    sid = stock_id.strip().upper()
+    if not repo.valid_stock_id(sid):
+        raise HTTPException(422, "不是有效的股票代號")
+    settings = get_settings()
+    with session_scope() as s:
+        if not repo.stock_known(s, sid):
+            raise HTTPException(404, f"查無股票 {sid}")
+        listed = sid in settings.watchlist or s.get(Watch, (repo.PWA_CHAT_ID, sid)) is not None
+        if not listed and repo.watch_count(s, repo.PWA_CHAT_ID) >= settings.max_watch_per_chat:
+            raise HTTPException(409, f"自選股最多 {settings.max_watch_per_chat} 檔，請先移除一些")
+        has_data = not repo.prices_df(s, sid, limit=1).empty
+
+    fetched = False
+    if not has_data:
+        from jobs.daily_etl import sync_stock  # 與每日排程共用同一套擷取與指標計算
+
+        try:
+            fetched = sync_stock(sid, 400) is not None
+        except ds.DataSourceError as exc:
+            log.warning("即時擷取 %s 失敗：%s", sid, exc)
+            raise HTTPException(502, "資料來源暫時無法連線，請稍後再試") from exc
+        if not fetched:
+            raise HTTPException(404, f"FinMind 沒有 {sid} 的股價資料")
+
+    with session_scope() as s:
+        if sid not in settings.watchlist:
+            repo.upsert(s, Watch, [{"chat_id": repo.PWA_CHAT_ID, "stock_id": sid}], keys=["chat_id", "stock_id"])
+        return {**repo.snapshot(s, sid), "removable": sid not in settings.watchlist, "fetched": fetched}
+
+
+@watch_router.delete("/{stock_id}")
+def remove_watch(stock_id: str):
+    sid = stock_id.strip().upper()
+    with session_scope() as s:
+        s.query(Watch).filter_by(chat_id=repo.PWA_CHAT_ID, stock_id=sid).delete()
+    return {"ok": True}

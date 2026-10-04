@@ -1,7 +1,7 @@
 """FastAPI 主程式：一個 Render 免費 Web Service 同時提供 API 與多種 Python UI。
 
   /health          喚醒與健康檢查
-  /api/*           JSON API
+  /api/*           JSON API（/api/watchlist 供 PWA 加入、移除自選股）
   /telegram/*      Telegram webhook
   /ui/gradio/      Gradio（個股 K 線＋AI 報告）
   /ui/dash/        Dash（月營收）
@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 
 from app.api import router as api_router
+from app.api import watch_router
 from app.telegram_bot import router as telegram_router
 from core.config import get_settings
 from core.db import engine, init_db, session_scope
@@ -35,8 +36,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="台股 AI 分析平台", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["GET"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
 app.include_router(api_router)
+app.include_router(watch_router)
 app.include_router(telegram_router)
 
 UIS: dict[str, str] = {}

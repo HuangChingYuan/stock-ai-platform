@@ -111,6 +111,13 @@ def latest_report(session: Session, stock_id: str) -> Report | None:
     return session.scalars(stmt).first()
 
 
+def stock_known(session: Session, stock_id: str) -> bool:
+    """股票清單還沒抓過（資料表是空的）時一律視為已知，避免擋掉正常代號。"""
+    if session.get(Stock, stock_id) is not None:
+        return True
+    return session.scalar(select(func.count()).select_from(Stock)) == 0
+
+
 def stock_name(session: Session, stock_id: str) -> str:
     s = session.get(Stock, stock_id)
     return s.name if s and s.name else stock_id
@@ -140,6 +147,9 @@ def rows_df(model, rows: list) -> pd.DataFrame:
     """把 latest_rows 的結果轉成與 prices_df / indicators_df 相同欄位的 DataFrame。"""
     cols = [c.name for c in model.__table__.columns if c.name != "stock_id"]
     return pd.DataFrame([{c: getattr(r, c) for c in cols} for r in rows], columns=cols)
+
+
+PWA_CHAT_ID = "pwa"  # PWA 沒有登入，網頁上加的自選股共用這個代號存在 watchlist（不推播）
 
 
 def watched_stock_ids(session: Session) -> list[str]:
