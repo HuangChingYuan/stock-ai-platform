@@ -35,4 +35,4 @@ if __name__ == "__main__":
             repo.upsert(s, MonthlyRevenue, rev, keys=["stock_id", "year", "month"])
             ind = ta.compute(df)
             repo.upsert(s, Indicator, [{"stock_id": sid, **r} for r in ind.to_dict("records")], keys=["stock_id", "date"])
-            print(sid, rpt.generate(s, sid, use_llm=False)["action"])
+        print(sid, rpt.generate(sid, use_llm=False)["action"])  # 要在上面的資料 commit 之後

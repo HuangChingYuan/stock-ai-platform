@@ -1,6 +1,7 @@
 """Telegram 機器人 webhook。指令：/price /signal /report /watch /unwatch /list /help"""
 from __future__ import annotations
 
+import hmac
 import logging
 import re
 
@@ -75,7 +76,9 @@ def handle(chat_id: str, text: str) -> str:
 @router.post("/telegram/webhook")
 async def webhook(request: Request, x_telegram_bot_api_secret_token: str | None = Header(default=None)):
     secret = get_settings().telegram_webhook_secret
-    if secret and x_telegram_bot_api_secret_token != secret:
+    if not secret:  # 沒設 secret 等於任何人都能冒充 Telegram 呼叫這個端點
+        raise HTTPException(503, "TELEGRAM_WEBHOOK_SECRET 未設定")
+    if not hmac.compare_digest(x_telegram_bot_api_secret_token or "", secret):
         raise HTTPException(403, "invalid secret")
     update = await request.json()
     msg = update.get("message") or update.get("edited_message") or {}

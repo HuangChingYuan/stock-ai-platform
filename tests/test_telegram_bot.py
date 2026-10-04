@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 pytest.importorskip("fastapi")  # 排程的 requirements-jobs.txt 不含 fastapi
@@ -55,5 +57,40 @@ def test_webhook_returns_200_when_handler_fails(bot, monkeypatch):
     monkeypatch.setattr(tg, "handle", boom)
     app = FastAPI()
     app.include_router(tg.router)
-    r = TestClient(app).post("/telegram/webhook", json={"message": {"text": "/price 2330", "chat": {"id": 1}}})
+    r = TestClient(app).post("/telegram/webhook", json={"message": {"text": "/price 2330", "chat": {"id": 1}}},
+                             headers={"X-Telegram-Bot-Api-Secret-Token": "test-secret"})
     assert r.status_code == 200 and sent == ["處理時發生錯誤，請稍後再試。"]
+
+
+def test_webhook_secret_is_required(bot, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from core.config import get_settings
+
+    tg, sent = bot
+    app = FastAPI()
+    app.include_router(tg.router)
+    client = TestClient(app)
+    body = {"message": {"text": "/help", "chat": {"id": 1}}}
+    assert client.post("/telegram/webhook", json=body).status_code == 403
+    assert client.post("/telegram/webhook", json=body,
+                       headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"}).status_code == 403
+    monkeypatch.setattr(tg, "get_settings", lambda: replace(get_settings(), telegram_webhook_secret=""))
+    assert client.post("/telegram/webhook", json=body).status_code == 503
+    assert sent == []
+
+
+def test_api_sets_cache_header_only_on_success(db):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api import router
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    ok = client.get("/api/stocks")
+    assert ok.status_code == 200 and ok.headers["cache-control"] == "public, max-age=300"
+    missing = client.get("/api/stocks/2330/report")
+    assert missing.status_code == 404 and "cache-control" not in missing.headers

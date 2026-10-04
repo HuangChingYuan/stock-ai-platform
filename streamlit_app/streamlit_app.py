@@ -27,26 +27,30 @@ from core import indicators as ta  # noqa: E402
 from core import repository as repo  # noqa: E402
 from core.config import get_settings  # noqa: E402
 from core.db import session_scope  # noqa: E402
+from core.models import DailyPrice, Indicator, Report  # noqa: E402
 
 st.set_page_config(page_title="自選股總覽", layout="wide")
 
 
 @st.cache_data(ttl=600)
 def load_overview(ids: tuple[str, ...]) -> pd.DataFrame:
+    ids = list(ids)
+    with session_scope() as s:  # 每種資料一次查完所有股票，不逐檔查詢
+        snaps = repo.snapshots(s, ids)
+        inds = repo.latest_rows(s, Indicator, ids, 2)
+        prices = repo.latest_rows(s, DailyPrice, ids, 2)
+        reps = repo.latest_rows(s, Report, ids, 1)
     rows = []
-    with session_scope() as s:
-        for sid in ids:
-            snap = repo.snapshot(s, sid)
-            ind = repo.indicators_df(s, sid, 2)
-            prices = repo.prices_df(s, sid, 2)
-            rep = repo.latest_report(s, sid)
-            last = ind.iloc[-1] if not ind.empty else {}
-            rows.append({
-                "代號": sid, "名稱": snap["name"], "收盤": snap["close"], "漲跌%": snap["change_pct"],
-                "RSI": last.get("rsi14") if len(ind) else None, "K": last.get("k") if len(ind) else None,
-                "訊號": "；".join(ta.signals(ind, prices)),
-                "AI 建議": rep.action if rep else "", "信心": rep.confidence if rep else None,
-            })
+    for sid, snap in zip(ids, snaps):
+        ind = repo.rows_df(Indicator, inds[sid])
+        rep = reps[sid][-1] if reps[sid] else None
+        last = ind.iloc[-1] if not ind.empty else {}
+        rows.append({
+            "代號": sid, "名稱": snap["name"], "收盤": snap["close"], "漲跌%": snap["change_pct"],
+            "RSI": last.get("rsi14") if len(ind) else None, "K": last.get("k") if len(ind) else None,
+            "訊號": "；".join(ta.signals(ind, repo.rows_df(DailyPrice, prices[sid]))),
+            "AI 建議": rep.action if rep else "", "信心": rep.confidence if rep else None,
+        })
     return pd.DataFrame(rows)
 
 

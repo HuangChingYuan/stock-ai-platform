@@ -6,6 +6,7 @@ from typing import Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from core.config import get_settings
 
@@ -25,6 +26,8 @@ def normalize_url(url: str) -> str:
 
 def _make_engine():
     url = normalize_url(get_settings().database_url)
+    if url in ("sqlite://", "sqlite:///:memory:"):  # 記憶體資料庫（測試用）：各執行緒共用同一個連線
+        return create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
     if url.startswith("sqlite"):
         return create_engine(url, connect_args={"check_same_thread": False})
     # Neon 閒置 5 分鐘會暫停 compute：pre_ping 讓斷線連線自動重建；連線數保持很小。
