@@ -1,6 +1,7 @@
 """Telegram 機器人 webhook。指令：/price /signal /report /watch /unwatch /list /help"""
 from __future__ import annotations
 
+import logging
 import re
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -13,6 +14,7 @@ from core.db import session_scope
 from core.models import Watch
 from core.notify import send_telegram
 
+log = logging.getLogger(__name__)
 router = APIRouter(tags=["telegram"])
 
 HELP = """台股 AI 小幫手
@@ -38,7 +40,13 @@ def handle(chat_id: str, text: str) -> str:
             return "自選股：" + ("、".join(ids) if ids else "尚未加入，使用 /watch 2330")
         if not arg:
             return f"請加上股票代號，例如 /{cmd} 2330"
+        if cmd != "unwatch" and not repo.valid_stock_id(arg):  # 舊的無效代號仍要能移除
+            return f"「{arg[:20]}」不是有效的股票代號，例如 2330、0050、00631L"
         if cmd == "watch":
+            limit = get_settings().max_watch_per_chat
+            exists = s.get(Watch, (chat_id, arg)) is not None
+            if not exists and repo.watch_count(s, chat_id) >= limit:
+                return f"自選股最多 {limit} 檔，請先用 /unwatch 移除一些。"
             repo.upsert(s, Watch, [{"chat_id": chat_id, "stock_id": arg}], keys=["chat_id", "stock_id"])
             return f"已加入 {arg}，之後每個交易日盤後推播訊號與報告。資料會在下次排程時開始抓取。"
         if cmd == "unwatch":
@@ -49,7 +57,8 @@ def handle(chat_id: str, text: str) -> str:
             if snap["close"] is None:
                 return f"資料庫裡還沒有 {arg} 的股價。"
             chg = f"{snap['change']:+g}（{snap['change_pct']:+.2f}%）" if snap["change"] is not None else ""
-            return f"{arg} {snap['name']}\n{snap['date']} 收盤 {snap['close']:g} {chg}\n成交量 {snap['volume']:,} 股"
+            vol = f"\n成交量 {snap['volume']:,} 股" if snap["volume"] is not None else ""
+            return f"{arg} {snap['name']}\n{snap['date']} 收盤 {snap['close']:g} {chg}{vol}"
         if cmd == "signal":
             sig = ta.signals(repo.indicators_df(s, arg, 5), repo.prices_df(s, arg, 5))
             return f"{arg} 技術訊號\n" + ("\n".join(f"・{x}" for x in sig) if sig else "目前沒有明顯訊號")
@@ -74,6 +83,10 @@ async def webhook(request: Request, x_telegram_bot_api_secret_token: str | None 
     if text and chat:
         from starlette.concurrency import run_in_threadpool
 
-        reply = await run_in_threadpool(handle, str(chat), text)
+        try:
+            reply = await run_in_threadpool(handle, str(chat), text)
+        except Exception:  # 一律回 200：回 5xx 的話 Telegram 會一直重送同一則訊息
+            log.exception("處理 Telegram 訊息失敗：%r", text[:100])
+            reply = "處理時發生錯誤，請稍後再試。"
         await run_in_threadpool(send_telegram, chat, reply)
     return {"ok": True}

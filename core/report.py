@@ -24,7 +24,7 @@ ACTIONS = {"買進", "觀望", "賣出"}
 def build_context(session: Session, stock_id: str) -> tuple[str, pd.DataFrame, pd.DataFrame]:
     prices = repo.prices_df(session, stock_id, limit=60)
     ind = repo.indicators_df(session, stock_id, limit=60)
-    rev = repo.revenue_df(session, stock_id, limit=13)
+    rev = repo.revenue_df(session, stock_id, limit=18)  # 最近 6 個月都要有去年同月才算得出年增率
     news = repo.latest_news(session, stock_id, limit=8)
 
     lines = [f"股票：{stock_id} {repo.stock_name(session, stock_id)}"]
