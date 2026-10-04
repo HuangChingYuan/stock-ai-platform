@@ -2,6 +2,7 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
 from core import repository as repo
 from core.db import session_scope
@@ -121,3 +122,31 @@ def test_trading_day_counts_early_morning_as_previous_day():
     assert repo.trading_day(datetime(2026, 9, 28, 18, 30, tzinfo=tpe)) == date(2026, 9, 28)
     assert repo.trading_day(datetime(2026, 9, 28, 16, 20, tzinfo=timezone.utc)) == date(2026, 9, 28)  # 台灣 00:20
     assert repo.trading_day(datetime(2026, 9, 29, 6, 0, tzinfo=tpe)) == date(2026, 9, 29)
+
+
+def test_refresh_stock_info_skips_indices(db, monkeypatch):
+    import pandas as pd
+
+    raw = pd.DataFrame([
+        {"stock_id": "2330", "stock_name": "台積電", "industry_category": "半導體業"},
+        {"stock_id": "00878", "stock_name": "國泰永續高股息", "industry_category": "ETF"},
+        {"stock_id": "ElectronicProductsDistribution", "stock_name": "電子通路類指數", "industry_category": "Index"},
+        {"stock_id": "TPEx", "stock_name": "櫃買指數", "industry_category": "大盤"},
+    ])
+    monkeypatch.setattr(daily_etl.ds, "_finmind", lambda *a, **k: raw)
+    assert daily_etl.refresh_stock_info() == 2
+    with session_scope() as session:
+        assert sorted(session.scalars(select(Stock.stock_id))) == ["00878", "2330"]
+
+
+def test_refresh_stock_info_failure_does_not_stop_etl(db, monkeypatch):
+    import pandas as pd
+
+    monkeypatch.setattr(daily_etl.ds, "fetch_stock_info",
+                        lambda: pd.DataFrame([{"stock_id": "2330", "name": "台積電", "industry": "半導體業"}]))
+
+    def broken_upsert(*a, **k):
+        raise RuntimeError("value too long for type character varying(10)")
+
+    monkeypatch.setattr(daily_etl.repo, "upsert", broken_upsert)
+    assert daily_etl.refresh_stock_info() == 0

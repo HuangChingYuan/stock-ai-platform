@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 
 from core.config import get_settings
+from core.repository import valid_stock_id
 
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 
@@ -53,6 +54,9 @@ def fetch_stock_info() -> pd.DataFrame:
     if df.empty:
         return df
     df = df.rename(columns={"stock_name": "name", "industry_category": "industry"})
+    # 清單裡也有大盤與類股指數（如 ElectronicProductsDistribution），只留股票與 ETF 代號
+    df = df[df["stock_id"].astype(str).map(valid_stock_id)]
+    df = df.assign(name=df["name"].str.slice(0, 50), industry=df["industry"].str.slice(0, 50))
     return df[["stock_id", "name", "industry"]].drop_duplicates("stock_id")
 
 
