@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Any, Iterable
 
@@ -186,3 +186,10 @@ def _snapshot(stock_id: str, name: str, df: pd.DataFrame) -> dict:
 def today() -> date:
     # 台灣時間的今天；GitHub Actions 與 Render 主機都是 UTC。
     return datetime.now(TAIPEI).date()
+
+
+def trading_day(now: datetime | None = None, cutoff_hour: int = 6) -> date:
+    """盤後排程所屬的交易日：台灣時間 cutoff_hour 點前仍算前一天。
+    GitHub Actions 的排程常延遲數小時，18:30 的排程可能過了午夜才跑。"""
+    now = now or datetime.now(TAIPEI)
+    return (now.astimezone(TAIPEI) - timedelta(hours=cutoff_hour)).date()
