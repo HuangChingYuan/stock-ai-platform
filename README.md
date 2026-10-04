@@ -87,7 +87,7 @@ Render 免費 Web Service 只有 512 MB 記憶體。Gradio＋Dash＋FastAPI 在�
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -r streamlit_app/requirements.txt pytest
+pip install -r requirements.txt -r streamlit_app/requirements.txt pytest ruff
 
 python -m jobs.seed_demo                  # 產生模擬資料（不需網路與金鑰）
 uvicorn app.main:app --reload             # http://127.0.0.1:8000/ui/gradio/
@@ -97,6 +97,34 @@ python -m pytest -q tests
 ```
 
 `DATABASE_URL` 留空時使用 `./local.db`（SQLite）。要抓真實資料，執行 `python -m jobs.daily_etl --no-push`。
+
+### 套件版本
+
+`requirements*.in` 只列直接依賴與最低版本；`requirements*.txt` 是由它們產生、鎖定所有版本的檔案，Render、Streamlit Cloud 與 GitHub Actions 都安裝鎖定版。新增或升級套件：改 `.in` 後執行
+
+```bash
+for f in requirements requirements-jobs streamlit_app/requirements; do
+  uv pip compile --universal --python-version 3.12 $f.in -o $f.txt            # 加 --upgrade 可升級到最新版
+done
+```
+
+CI 會檢查 `.in` 與 `.txt` 是否一致。
+
+### 資料表結構（Alembic）
+
+API 啟動與每日排程會自動把資料庫升級到最新版本。改了 `core/models.py` 要新增 migration：
+
+```bash
+DATABASE_URL=sqlite:///./local.db alembic revision --autogenerate -m "說明"   # 產生在 migrations/versions/
+```
+
+檢查產生的檔案後一起提交。忘了產生 migration 時，`tests/test_migrations.py` 會失敗。導入 Alembic 前就建立的資料庫，第一次執行時會自動標記為基準版 `0001`，不會重建資料表。
+
+### CI 與排程
+
+- `ci.yml`：PR 與推送到 main 時執行 ruff、鎖定檔檢查、匯入完整 Web 服務與 pytest。
+- `daily-etl.yml`：每個交易日盤後排程；每週一順便更新上市櫃股票名稱。
+- `keepalive.yml`：公開 repo 連續 60 天沒有活動時，GitHub 會停用排程 workflow；這個 workflow 每月重新啟用它們。若仍收到 GitHub 的停用通知信，到 Actions 頁面手動 Enable 即可。
 
 ## 部署步驟
 
@@ -113,7 +141,7 @@ python -m pytest -q tests
    DATABASE_URL = "postgresql://..."
    WATCHLIST = "2330,2317,2454"
    ```
-6. **PWA**：修改 `pwa/config.js` 的 `apiBase` 與 Streamlit 網址後推送，Render 會自動重新部署。上線後把 API 的 `CORS_ORIGINS` 改成 PWA 網址。
+6. **PWA**：修改 `pwa/config.js` 的 `apiBase` 與 Streamlit 網址後推送，Render 會自動重新部署。`render.yaml` 已把 API 的 `CORS_ORIGINS` 設成 `https://stock-ai-pwa.onrender.com`；PWA 網址不同時記得一起改。
 7. **Telegram**：跟 @BotFather 建立機器人，設定好環境變數後在本機執行 `python -m jobs.set_webhook`。本機的 `TELEGRAM_WEBHOOK_SECRET` 必須和 Render 上的值相同（Render 會自動產生，到服務的 Environment 頁面複製）；webhook 會拒絕沒有正確 secret 的請求。
 
 ## 免費方案的限制與對策

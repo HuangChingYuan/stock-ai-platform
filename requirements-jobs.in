@@ -1,0 +1,10 @@
+# GitHub Actions 排程用（不含 UI 套件，安裝較快）
+# 只列直接依賴與最低版本；實際安裝的鎖定版本在 requirements-jobs.txt
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.2
+pandas>=2.2
+httpx>=0.27
+requests>=2.32
+openai>=1.50
+pytest>=8.0

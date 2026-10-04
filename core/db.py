@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator
 
 from sqlalchemy import create_engine
@@ -9,6 +10,9 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from core.config import get_settings
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class Base(DeclarativeBase):
@@ -51,7 +55,20 @@ def session_scope() -> Iterator[Session]:
         session.close()
 
 
-def init_db() -> None:
-    from core import models  # noqa: F401  註冊資料表
+BASELINE = "0001"  # 導入 Alembic 前，create_all 建立的結構就是這一版
 
-    Base.metadata.create_all(engine)
+
+def init_db() -> None:
+    """把資料庫升級到最新結構（Alembic）。API 啟動與每日排程都會呼叫，已是最新版時不做任何事。"""
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect
+
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "migrations"))
+    with engine.begin() as conn:
+        cfg.attributes["connection"] = conn
+        tables = inspect(conn).get_table_names()
+        if "alembic_version" not in tables and "daily_prices" in tables:
+            command.stamp(cfg, BASELINE)  # 既有資料庫：標記為基準版，不重建資料表
+        command.upgrade(cfg, "head")

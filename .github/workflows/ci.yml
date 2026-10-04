@@ -1,0 +1,40 @@
+# PR 與推送到 main 時檢查：lint、鎖定檔一致、完整 Web 服務可匯入、測試
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: "sqlite://"   # 測試一律用記憶體資料庫，不碰 Neon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-jobs.txt
+            streamlit_app/requirements.txt
+      - name: Lint
+        run: pip install ruff==0.15.20 && ruff check .
+      - name: Lock files match *.in
+        run: |
+          pip install uv==0.8.17
+          for f in requirements requirements-jobs streamlit_app/requirements; do
+            uv pip compile --quiet --universal --python-version 3.12 "$f.in" -o "$f.txt"
+          done
+          git diff --exit-code -- '*.txt' || { echo "::error::改了 *.in 卻沒重新產生鎖定檔，請執行 README 的 uv pip compile 指令"; exit 1; }
+      - run: pip install -r requirements.txt pytest
+      - name: Import web service with all UIs
+        run: python -c "import app.main"
+      - run: python -m pytest -q tests

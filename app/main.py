@@ -15,11 +15,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func, select
 
 from app.api import router as api_router
 from app.telegram_bot import router as telegram_router
 from core.config import get_settings
-from core.db import init_db
+from core.db import engine, init_db, session_scope
+from core.models import DailyPrice
 
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")  # 不送使用統計
 logging.basicConfig(level=logging.INFO)
@@ -39,10 +41,6 @@ app.include_router(telegram_router)
 
 UIS: dict[str, str] = {}
 
-
-from sqlalchemy import func, select
-from core.db import engine, session_scope
-from core.models import DailyPrice
 
 @app.get("/health")
 def health():

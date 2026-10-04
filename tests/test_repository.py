@@ -1,5 +1,8 @@
 from datetime import date, datetime
 
+import pandas as pd
+
+from core import llm
 from core import report as rpt
 from core import repository as repo
 from core.db import session_scope
@@ -55,3 +58,59 @@ def test_snapshots_batch_matches_single(db):
     assert a["name"] == "台積電" and a["close"] == 106.0 and a["change"] == 1.0
     assert b["name"] == "2317" and b["change"] is None
     assert c["close"] is None
+
+
+def test_revenue_yoy(db):
+    rows = [{"stock_id": "2330", "year": y, "month": m, "revenue": rev}
+            for y, m, rev in ((2024, 1, 100), (2024, 2, 0), (2025, 1, 150), (2025, 2, 80), (2025, 3, 90))]
+    with session_scope() as s:
+        repo.upsert(s, MonthlyRevenue, rows, keys=["stock_id", "year", "month"])
+    with session_scope() as s:
+        df = repo.revenue_df(s, "2330")
+    yoy = dict(zip(zip(df["year"], df["month"]), df["yoy"]))
+    assert yoy[(2025, 1)] == 50.0
+    assert pd.isna(yoy[(2025, 2)])   # 去年同月營收為 0：不算年增率
+    assert pd.isna(yoy[(2025, 3)])   # 沒有去年同月
+    assert pd.isna(yoy[(2024, 1)])
+
+
+def test_upsert_updates_existing_rows_and_cleans_nan(db):
+    import numpy as np
+
+    with session_scope() as s:
+        repo.upsert(s, DailyPrice, [_price("2330", date(2026, 1, 2), 100.0)], keys=["stock_id", "date"])
+        n = repo.upsert(s, DailyPrice, [{**_price("2330", date(2026, 1, 2), 101.0), "volume": np.int64(5), "open": np.nan},
+                                        _price("2330", date(2026, 1, 3), 102.0)], keys=["stock_id", "date"])
+        assert repo.upsert(s, DailyPrice, [], keys=["stock_id", "date"]) == 0
+    assert n == 2
+    with session_scope() as s:
+        df = repo.prices_df(s, "2330")
+    assert df["close"].tolist() == [101.0, 102.0]
+    assert df["volume"].tolist() == [5, 100] and df["open"].isna().tolist() == [True, False]
+
+
+def test_upsert_with_only_key_columns_ignores_duplicates(db):
+    from core.models import Watch
+
+    with session_scope() as s:
+        repo.upsert(s, Watch, [{"chat_id": "1", "stock_id": "2330"}], keys=["chat_id", "stock_id"])
+        repo.upsert(s, Watch, [{"chat_id": "1", "stock_id": "2330"}], keys=["chat_id", "stock_id"])
+    with session_scope() as s:
+        assert repo.watch_count(s, "1") == 1
+
+
+def test_extract_json_handles_fences_and_extra_text():
+    assert llm._extract_json('```json\n{"a": 1}\n```') == {"a": 1}
+    assert llm._extract_json('結論如下：{"a": {"b": 2}} 以上') == {"a": {"b": 2}}
+    import pytest
+    with pytest.raises(ValueError):
+        llm._extract_json("沒有 JSON")
+
+
+def test_normalize_clamps_and_defaults():
+    out = rpt._normalize({"action": "強力買進", "confidence": "150", "summary": "x" * 600,
+                          "reasons": ["a", "b", "c", "d", "e"], "risks": "單一風險"})
+    assert out["action"] == "觀望" and out["confidence"] == 100 and len(out["summary"]) == 500
+    assert out["reasons"] == ["a", "b", "c", "d"] and out["risks"] == ["單一風險"]
+    assert rpt._normalize({"action": "賣出", "confidence": "abc"})["confidence"] == 50
+    assert rpt._normalize({"action": "買進", "confidence": -5, "reasons": None})["reasons"] == []
