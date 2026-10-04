@@ -52,8 +52,12 @@ def sync_stock(stock_id: str, days: int) -> date | None:
 
     prices = ds.fetch_prices(stock_id, start)
     time.sleep(1)
-    revenue = ds.fetch_month_revenue(stock_id, today - timedelta(days=800 if existing.empty else 100))
-    time.sleep(1)
+    # 月營收每月 10 日前公布，只在 1–15 日更新（含延後公布），其他日子省下這次 FinMind 呼叫；新股票一律回補
+    if existing.empty or today.day <= 15:
+        revenue = ds.fetch_month_revenue(stock_id, today - timedelta(days=800 if existing.empty else 100))
+        time.sleep(1)
+    else:
+        revenue = pd.DataFrame()
     news = ds.fetch_news(stock_id, today - timedelta(days=3))
     time.sleep(1)
     # 法人與本益比依各自資料表判斷是否回補（既有股票升級後也會補）；本益比回補一年，報告才有區間可比較
@@ -89,6 +93,8 @@ def _optional(fetch, stock_id: str, start: date):
     """法人、本益比只是報告的補充資料：抓不到就略過，不讓整檔股票失敗。"""
     try:
         df = fetch(stock_id, start)
+    except ds.QuotaExceededError:
+        raise  # 額度用完時後面的呼叫也會失敗，交給 main() 停止整批
     except Exception as exc:
         log.warning("%s %s 失敗（略過）：%s", stock_id, fetch.__name__, str(exc)[:200])
         df = pd.DataFrame()
@@ -191,6 +197,11 @@ def main() -> None:
                     continue
             reports[sid] = rpt.generate(sid, use_llm=not args.no_llm)
             log.info("%s 報告：%s（%s）", sid, reports[sid]["action"], reports[sid]["provider"])
+        except ds.QuotaExceededError as exc:  # 繼續呼叫只會延長 IP 封鎖；已完成的報告照常推播
+            rest = stocks[stocks.index(sid):]
+            log.error("%s；停止擷取，未處理：%s", exc, ", ".join(rest))
+            failed.extend(rest)
+            break
         except Exception:  # 單檔失敗不影響其他股票
             log.exception("%s 處理失敗", sid)
             failed.append(sid)

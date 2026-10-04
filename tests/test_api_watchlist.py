@@ -91,6 +91,17 @@ def test_data_source_error_returns_502(client, monkeypatch):
     assert c.post("/api/watchlist/2603").status_code == 502 and pwa_watch_ids() == []
 
 
+def test_quota_error_returns_503(client, monkeypatch):
+    c, _ = client
+    from jobs import daily_etl
+
+    def exhausted(sid, days):
+        raise ds.QuotaExceededError("HTTP 402")
+
+    monkeypatch.setattr(daily_etl, "sync_stock", exhausted)
+    assert c.post("/api/watchlist/2603").status_code == 503 and pwa_watch_ids() == []
+
+
 def test_limit_and_remove(client):
     c, _ = client
     from core.config import get_settings

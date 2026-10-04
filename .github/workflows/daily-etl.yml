@@ -26,7 +26,7 @@ concurrency:
 jobs:
   etl:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45   # Gemini 失敗改用 Groq 時，每檔間隔 20 秒，50 檔約 20 分鐘
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}

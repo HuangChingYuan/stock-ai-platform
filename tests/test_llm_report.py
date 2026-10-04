@@ -118,3 +118,37 @@ def test_report_stores_context_rule_action_and_flows(db, monkeypatch):
     md = rpt.to_markdown(r, with_context=True)
     assert "規則式判斷" in md and "外資 +1,234" in md
     assert "外資 +1,234" not in rpt.to_markdown(r)
+
+
+
+def test_each_provider_has_its_own_interval_and_output_limit(monkeypatch):
+    import openai
+
+    sent, slept = [], []
+
+    class FakeClient:
+        def __init__(self, **_):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kw):
+            sent.append(kw)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"action": "觀望"}'))])
+
+    monkeypatch.setattr(openai, "OpenAI", FakeClient)
+    monkeypatch.setattr(llm, "_down_until", {})
+    monkeypatch.setattr(llm, "_last_call", {})
+    monkeypatch.setattr(llm.time, "sleep", slept.append)
+    monkeypatch.setenv("CEREBRAS_API_KEY", "x")
+    monkeypatch.setenv("LLM_PROVIDERS", "cerebras")
+    llm.get_settings.cache_clear()
+    try:
+        llm.chat_json("s", "u")
+        llm.chat_json("s", "u")
+        monkeypatch.setenv("CEREBRAS_MAX_TOKENS", "1200")
+        llm._last_call.clear()
+        llm.chat_json("s", "u")
+        assert llm.PROVIDERS["groq"].interval() == 20 and llm.PROVIDERS["gemini"].interval() == 6
+    finally:
+        llm.get_settings.cache_clear()
+    assert len(slept) == 1 and 12 < slept[0] <= 13  # Cerebras 免費 5 RPM：間隔 13 秒，大於全域的 6 秒
+    assert [k["max_tokens"] for k in sent] == [1500, 1500, 1200]

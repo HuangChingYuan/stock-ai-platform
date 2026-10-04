@@ -18,7 +18,7 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for wf in daily-etl.yml keep-warm.yml streamlit-wake.yml keepalive.yml; do
+          for wf in daily-etl.yml backtest.yml keep-warm.yml streamlit-wake.yml keepalive.yml; do
             gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/enable"
             echo "enabled $wf"
           done
