@@ -42,7 +42,7 @@ app/             Render Web Service
 streamlit_app/   Streamlit Community Cloud
 pwa/             PWA 外殼（純靜態）
 jobs/            排程與工具腳本
-.github/workflows/  daily-etl.yml、keep-warm.yml
+.github/workflows/  daily-etl.yml、keep-warm.yml、streamlit-wake.yml
 render.yaml      Render Blueprint（一次建立 API 與 PWA 兩個服務）
 ```
 
@@ -124,6 +124,7 @@ DATABASE_URL=sqlite:///./local.db alembic revision --autogenerate -m "說明"   
 
 - `ci.yml`：PR 與推送到 main 時執行 ruff、鎖定檔檢查、匯入完整 Web 服務與 pytest。
 - `daily-etl.yml`：每個交易日盤後排程；每週一順便更新上市櫃股票名稱。
+- `streamlit-wake.yml`：Streamlit Community Cloud 約 12 小時沒人瀏覽就休眠，PWA 的「總覽」會變成休眠頁。這個 workflow 每 6 小時用無頭瀏覽器開啟 app，休眠中就按喚醒按鈕（`jobs/wake_streamlit.py`）。換了網址就設定 Variables 的 `STREAMLIT_URL`；失敗時到該次執行的 Artifacts 下載截圖。PWA 另外在「總覽」下方提示「開新分頁喚醒」，作為排程失效時的備援。
 - `keepalive.yml`：公開 repo 連續 60 天沒有活動時，GitHub 會停用排程 workflow；這個 workflow 每月重新啟用它們。若仍收到 GitHub 的停用通知信，到 Actions 頁面手動 Enable 即可。
 
 ## 部署步驟

@@ -10,7 +10,9 @@ window.APP_CONFIG = {
     { id: "chart",    label: "K 線",   engine: "Gradio",    url: "{api}/ui/gradio/?stock={stock}&view=chart" },
     { id: "report",   label: "AI 報告", engine: "Gradio",    url: "{api}/ui/gradio/?stock={stock}&view=report" },
     { id: "revenue",  label: "月營收",  engine: "Dash",      url: "{api}/ui/dash/?stock={stock}" },
-    // Streamlit Community Cloud 的網址；embed=true 會隱藏 Streamlit 自己的工具列
-    { id: "overview", label: "總覽",   engine: "Streamlit", url: "https://stock-ai-overview.streamlit.app/?embed=true&stock={stock}", needsApi: false },
+    // Streamlit Community Cloud 的網址；embed=true 會隱藏 Streamlit 自己的工具列。
+    // wakeUrl：閒置會休眠的主機，畫面下方顯示「開新分頁喚醒」提示，連到不含 embed 的網址。
+    { id: "overview", label: "總覽",   engine: "Streamlit", url: "https://stock-ai-overview.streamlit.app/?embed=true&stock={stock}", needsApi: false,
+      wakeUrl: "https://stock-ai-overview.streamlit.app/?stock={stock}" },
   ],
 };
