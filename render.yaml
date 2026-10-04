@@ -32,7 +32,7 @@ services:
       - key: PUBLIC_BASE_URL
         sync: false          # 例如 https://stock-ai-api.onrender.com
       - key: CORS_ORIGINS
-        value: "*"           # 上線後改成 PWA 的網址
+        value: "https://stock-ai-pwa.onrender.com"   # PWA 的網址；多個以逗號分隔
       - key: ENABLE_GRADIO
         value: "true"
       - key: ENABLE_DASH

@@ -1,0 +1,24 @@
+# 公開 repo 連續 60 天沒有活動時，GitHub 會自動停用排程 workflow（停用前會寄信通知）。
+# 這個 workflow 每月透過 API 重新啟用各個排程 workflow（包括自己），不必產生假的 commit。
+name: keepalive
+
+on:
+  schedule:
+    - cron: "17 3 1 * *"   # 每月 1 日 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in daily-etl.yml keep-warm.yml keepalive.yml; do
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/enable"
+            echo "enabled $wf"
+          done

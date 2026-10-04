@@ -1,0 +1,5 @@
+# Streamlit Community Cloud 用；鎖定版本在 requirements.txt
+streamlit>=1.50
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+pandas>=2.2

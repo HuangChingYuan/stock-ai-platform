@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Any, Iterable
 
 import pandas as pd
@@ -12,6 +13,8 @@ from sqlalchemy.orm import Session, aliased
 
 from core.models import DailyPrice, Indicator, MonthlyRevenue, News, Report, Stock, Watch
 
+
+TAIPEI = ZoneInfo("Asia/Taipei")
 
 # 上市櫃代號：4 碼個股、5–6 碼 ETF，可帶一個英文字尾（例：2881A、00631L、00679B）
 STOCK_ID_RE = re.compile(r"\d{4,6}[A-Z]?")
@@ -181,5 +184,5 @@ def _snapshot(stock_id: str, name: str, df: pd.DataFrame) -> dict:
 
 
 def today() -> date:
-    # 台灣時間（UTC+8）的今天；GitHub Actions 與 Render 主機都是 UTC。
-    return (pd.Timestamp.utcnow() + pd.Timedelta(hours=8)).date()
+    # 台灣時間的今天；GitHub Actions 與 Render 主機都是 UTC。
+    return datetime.now(TAIPEI).date()

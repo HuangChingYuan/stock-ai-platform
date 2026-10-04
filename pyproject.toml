@@ -1,0 +1,11 @@
+# 只放工具設定；套件依賴見 requirements*.in / requirements*.txt
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+ignore = [
+  "E702",  # 專案風格允許以分號串接短敘述
+  "E731",  # 專案風格允許指派短 lambda
+]

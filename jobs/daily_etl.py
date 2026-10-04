@@ -7,12 +7,12 @@ python -m jobs.daily_etl --force           # 休市日或今天已產生過報�
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select
-
 import argparse
 import logging
 import time
 from datetime import date, timedelta
+
+from sqlalchemy import func, select
 
 from core import data_sources as ds
 from core import indicators as ta
@@ -20,10 +20,23 @@ from core import report as rpt
 from core import repository as repo
 from core.config import get_settings
 from core.db import init_db, session_scope
-from core.models import DailyPrice, Indicator, MonthlyRevenue, News, Report
+from core.models import DailyPrice, Indicator, MonthlyRevenue, News, Report, Stock
 from core.notify import send_telegram
 
 log = logging.getLogger("daily_etl")
+
+
+def refresh_stock_info() -> int:
+    """更新上市櫃股票名稱與產業（新上市、改名）。失敗只記錄警告，不影響每日流程。"""
+    try:
+        info = ds.fetch_stock_info()
+    except ds.DataSourceError as exc:
+        log.warning("股票清單更新失敗（下次再試）：%s", exc)
+        return 0
+    with session_scope() as s:
+        n = repo.upsert(s, Stock, info.to_dict("records"), keys=["stock_id"])
+    log.info("股票清單已更新 %d 筆", n)
+    return n
 
 
 def sync_stock(stock_id: str, days: int) -> date | None:
@@ -132,6 +145,11 @@ def main() -> None:
         raise SystemExit("股票清單是空的：請設定 WATCHLIST 或用 --stocks 指定")
 
     today = repo.today()
+    with session_scope() as s:
+        no_names = s.scalar(select(func.count()).select_from(Stock)) == 0
+    if today.weekday() == 0 or no_names:  # 每週一更新一次名稱；資料表是空的就立刻更新
+        refresh_stock_info()
+
     failed, reports = [], {}
     for sid in stocks:
         try:
