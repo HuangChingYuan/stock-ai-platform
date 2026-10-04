@@ -150,3 +150,12 @@ def test_industries_and_stocks_by_industry(client):
     assert len(c.get("/api/industries/stocks", params={"industry": "半導體業"}).json()) == 3
     assert c.get("/api/industries/stocks", params={"industry": "不存在"}).json() == []
     assert c.get("/api/industries/stocks").status_code == 422
+
+
+def test_remove_reports_env_stock_and_is_idempotent(client):
+    c, _ = client
+    r = c.delete("/api/watchlist/2330")  # 環境變數 WATCHLIST 的股票：不可假裝移除成功
+    assert r.status_code == 409 and "WATCHLIST" in r.json()["detail"]
+    c.post("/api/watchlist/2603")
+    assert c.delete("/api/watchlist/2603").json() == {"ok": True, "removed": True}
+    assert c.delete("/api/watchlist/2603").json() == {"ok": True, "removed": False}

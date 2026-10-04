@@ -21,6 +21,7 @@
       <h1 class="brand">台股 AI 分析</h1>
       <p class="status" id="status" role="status" aria-live="polite">
         <span class="dot" aria-hidden="true"></span><span id="status-text">連線中</span>
+        <button type="button" class="status-retry" id="status-retry" hidden>重試</button>
       </p>
     </header>
 
@@ -69,6 +70,7 @@
       </section>
     </div>
   </dialog>
+  <div class="toasts" id="toasts"></div>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
