@@ -118,7 +118,10 @@ def add_watch(stock_id: str):
 
 @watch_router.delete("/{stock_id}")
 def remove_watch(stock_id: str):
+    """已不在清單也回成功（重按、兩個分頁同時移除）；環境變數 WATCHLIST 的股票刪不掉，明確回錯誤而不是假裝成功。"""
     sid = stock_id.strip().upper()
+    if sid in get_settings().watchlist:
+        raise HTTPException(409, f"{sid} 由環境變數 WATCHLIST 設定，無法從網頁移除")
     with session_scope() as s:
-        s.query(Watch).filter_by(chat_id=repo.PWA_CHAT_ID, stock_id=sid).delete()
-    return {"ok": True}
+        removed = s.query(Watch).filter_by(chat_id=repo.PWA_CHAT_ID, stock_id=sid).delete()
+    return {"ok": True, "removed": bool(removed)}

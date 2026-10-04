@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import logging
 from urllib.parse import parse_qs
 
 import dash
@@ -14,7 +15,9 @@ from core import repository as repo
 from core.config import get_settings
 from core.db import session_scope
 
+log = logging.getLogger(__name__)
 FONT = "'Noto Sans TC', system-ui, sans-serif"
+WARN = {"color": "#d23b3b", "fontWeight": 500, "fontSize": "15px"}
 
 
 def build(prefix: str = "/ui/dash/") -> dash.Dash:
@@ -29,6 +32,7 @@ def build(prefix: str = "/ui/dash/") -> dash.Dash:
                       style={"width": "120px", "padding": "6px 10px", "fontSize": "16px"}),
             html.Span(id="headline", style={"fontWeight": 700, "fontSize": "18px"}),
         ]),
+        html.P(id="notice", role="status", style=WARN),
         dcc.Graph(id="rev-chart", config={"displaylogo": False, "responsive": True}),
         dash_table.DataTable(
             id="rev-table",
@@ -46,17 +50,28 @@ def build(prefix: str = "/ui/dash/") -> dash.Dash:
         return (sid or (watch[0] if watch else "")).upper()
 
     @app.callback(Output("rev-chart", "figure"), Output("rev-table", "data"), Output("headline", "children"),
-                  Input("stock", "value"))
+                  Output("notice", "children"), Input("stock", "value"))
     def update(stock_id):
+        # 正式環境 Dash 的 callback 例外只會讓畫面停在舊內容，所以錯誤都轉成畫面上的說明
         stock_id = (stock_id or "").strip().upper()
-        with session_scope() as s:
-            rev = repo.revenue_df(s, stock_id, 36)
-            name = repo.stock_name(s, stock_id)
+        if not stock_id:
+            return charts._empty("請輸入股票代號"), [], "", "請在上方輸入股票代號，例如 2330"
+        if not repo.valid_stock_id(stock_id):
+            return charts._empty("不是有效的股票代號"), [], "", f"「{stock_id}」不是有效的股票代號，請輸入 4 到 6 碼數字"
+        try:
+            with session_scope() as s:
+                rev = repo.revenue_df(s, stock_id, 36)
+                name = repo.stock_name(s, stock_id)
+        except Exception:
+            log.exception("Dash 讀取 %s 月營收失敗", stock_id)
+            msg = "資料庫暫時無法連線，請稍後重新整理"
+            return charts._empty(msg), [], stock_id, msg
         rows = [] if rev.empty else [
             {"year": r.year, "month": r.month, "revenue_k": f"{r.revenue / 1000:,.0f}",
              "yoy": "" if r.yoy is None or r.yoy != r.yoy else f"{r.yoy:+.1f}"}
             for r in rev.iloc[::-1].itertuples()
         ]
-        return charts.revenue(rev, "近 36 個月營收"), rows, f"{stock_id} {name}"
+        notice = "" if rows else f"資料庫裡還沒有 {stock_id} 的月營收（ETF 沒有月營收；個股可等每日排程下載）"
+        return charts.revenue(rev, "近 36 個月營收"), rows, f"{stock_id} {name}", notice
 
     return app

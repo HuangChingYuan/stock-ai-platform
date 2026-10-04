@@ -32,6 +32,9 @@ from core.models import DailyPrice, Indicator, Report  # noqa: E402
 st.set_page_config(page_title="自選股總覽", layout="wide")
 
 
+COLUMNS = ["代號", "名稱", "收盤", "漲跌%", "RSI", "K", "訊號", "AI 建議", "信心"]
+
+
 @st.cache_data(ttl=600)
 def load_overview(ids: tuple[str, ...]) -> pd.DataFrame:
     ids = list(ids)
@@ -51,13 +54,19 @@ def load_overview(ids: tuple[str, ...]) -> pd.DataFrame:
             "訊號": "；".join(ta.signals(ind, repo.rows_df(DailyPrice, prices[sid]))),
             "AI 建議": rep.action if rep else "", "信心": rep.confidence if rep else None,
         })
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=COLUMNS)  # 自選股是空的也要有欄位，後面的篩選才不會出錯
 
 
-with session_scope() as s:
-    ids = tuple(dict.fromkeys(get_settings().watchlist + repo.watched_stock_ids(s)))
-
-df = load_overview(ids)
+try:
+    with session_scope() as s:
+        ids = tuple(dict.fromkeys(get_settings().watchlist + repo.watched_stock_ids(s)))
+    df = load_overview(ids)
+except Exception as exc:  # DATABASE_URL 沒設或 Neon 暫停：說明原因並停止，不要只丟出整頁 traceback
+    st.error("資料庫暫時無法連線，請稍後重新整理。若持續發生，請確認 Secrets 的 DATABASE_URL。")
+    st.caption(f"錯誤：{type(exc).__name__}")
+    if st.button("重新整理"):
+        st.rerun()
+    st.stop()
 focus = st.query_params.get("stock", "").upper()
 
 st.subheader("自選股總覽")
@@ -83,6 +92,13 @@ def color_change(v):
 def highlight(row):
     return ["background-color:#eaf1fb" if row["代號"] == focus else "" for _ in row]
 
+
+if df.empty:
+    st.info("自選股是空的。在 App 上方輸入代號按「查看」，或在環境變數 WATCHLIST 設定。")
+elif view.empty:
+    st.info("沒有符合篩選條件的股票，請放寬「AI 建議」「RSI 上限」或「訊號關鍵字」。")
+if focus and focus not in set(df["代號"]):
+    st.warning(f"{focus} 不在自選股，總覽裡沒有這一檔。")
 
 st.dataframe(
     view.style.apply(highlight, axis=1).map(color_change, subset=["漲跌%"])
