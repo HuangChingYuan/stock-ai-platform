@@ -30,7 +30,7 @@ services:
       - key: TELEGRAM_WEBHOOK_SECRET
         generateValue: true
       - key: PUBLIC_BASE_URL
-        sync: false          # 例如 https://stock-ai-api-bebh.onrender.com（以 Render 實際網址為準）
+        sync: false          # 選填：留空時用 Render 自動提供的 RENDER_EXTERNAL_URL；用自訂網域時才需要填
       - key: CORS_ORIGINS
         value: "https://stock-ai-pwa.onrender.com"   # PWA 的網址；多個以逗號分隔
       - key: ENABLE_GRADIO

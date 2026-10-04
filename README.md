@@ -21,6 +21,29 @@ Python AI 財經交易實戰：從資料到策略實作。整套部署都使用�
                     Render Static Site（免費、不休眠）
 ```
 
+## 使用流程
+
+**每個交易日的時間軸**（台灣時間）
+
+| 時間 | 發生什麼事 | 由誰執行 |
+|---|---|---|
+| 09:00–14:00 | 每 14 分鐘喚醒 Render，盤中開網頁不必等 | `keep-warm.yml` |
+| 18:30 起 | 抓股價、營收、法人、本益比、新聞 → 算指標 → 產生 AI 報告 → Telegram 推播一則彙整 | `daily-etl.yml` |
+| 每 6 小時 | 喚醒 Streamlit 總覽 | `streamlit-wake.yml` |
+| 週六 10:00 | 回測 LLM 與規則式勝率，結果在 Actions 的 Summary | `backtest.yml` |
+
+**三種入口**
+
+| 想做的事 | PWA（網頁） | Telegram | Streamlit |
+|---|---|---|---|
+| 看一檔股票 | 「代號」輸入後按「查看」，或按「類股」挑選 | 直接傳代號或名稱，例如 `2330`、`台積電` | — |
+| 加入自選股 | 按「查看」就會加入；沒有資料時立刻下載（約 10 秒） | `/watch 2330`；沒有資料時立刻下載，完成後通知 | — |
+| 看 AI 報告 | 「AI 報告」分頁；可按「重新產生報告」 | `/report 2330` | 「AI 建議」欄 |
+| 篩選自選股 | — | `/list` 列出收盤與漲跌 | 依 AI 建議、RSI、訊號篩選 |
+| 每日通知 | — | 自選股盤後自動推播 | — |
+
+新加入的股票當天沒有 AI 報告，會在下一次盤後排程產生；急著看可以在 PWA 的「AI 報告」分頁按「重新產生報告」。
+
 ## 目錄
 
 ```
@@ -169,14 +192,15 @@ DATABASE_URL=sqlite:///./local.db alembic revision --autogenerate -m "說明"   
    - 選用：`MAX_STOCKS`（排程股票總數上限，預設 50）、`LLM_PROVIDER_COOLDOWN`（某家 LLM 失敗後暫停使用的秒數，預設 1800）
    - Render 上可選設：`MAX_WATCH_PER_CHAT`（每個 Telegram 對話的自選股上限，預設 10）、`REPORT_COOLDOWN_MINUTES`（同一檔報告重新產生的冷卻分鐘數，預設 30）、`REPORT_REGEN_PER_HOUR`（每小時重新產生報告的總次數上限，預設 20）
 3. **初始化資料**：Actions → daily-etl → Run workflow。第一次會抓約 400 天股價與建立資料表。排程只在當天有新股價時才產生報告與推播（休市日自動略過、同一天重跑不重複推播）；假日想先產生報告，勾選 `force`。
-4. **Render**：New → Blueprint，選這個 repo，會建立 `stock-ai-api` 與 `stock-ai-pwa` 兩個服務。在 `stock-ai-api` 填入 `DATABASE_URL`、LLM 金鑰、`PUBLIC_BASE_URL`（服務網址）。
+4. **Render**：New → Blueprint，選這個 repo，會建立 `stock-ai-api` 與 `stock-ai-pwa` 兩個服務。在 `stock-ai-api` 填入 `DATABASE_URL`、LLM 金鑰與 `TELEGRAM_BOT_TOKEN`。`PUBLIC_BASE_URL` 可留空，會自動使用 Render 提供的服務網址（用自訂網域時才需要填）。
 5. **Streamlit Community Cloud**：New app，Main file 選 `streamlit_app/streamlit_app.py`，在 Secrets 填入：
    ```toml
    DATABASE_URL = "postgresql://..."
    WATCHLIST = "2330,2317,2454"
    ```
 6. **PWA**：修改 `pwa/config.js` 的 `apiBase` 與 Streamlit 網址後推送，Render 會自動重新部署。`render.yaml` 已把 API 的 `CORS_ORIGINS` 設成 `https://stock-ai-pwa.onrender.com`；PWA 網址不同時記得一起改。
-7. **Telegram**：跟 @BotFather 建立機器人，設定好環境變數後在本機執行 `python -m jobs.set_webhook`。本機的 `TELEGRAM_WEBHOOK_SECRET` 必須和 Render 上的值相同（Render 會自動產生，到服務的 Environment 頁面複製）；webhook 會拒絕沒有正確 secret 的請求。
+7. **Telegram**：跟 @BotFather 建立機器人，把 token 填到 Render 的 `TELEGRAM_BOT_TOKEN` 與 GitHub 的 Secrets。Render 服務每次啟動都會自動設定 webhook（含 Render 自動產生的 `TELEGRAM_WEBHOOK_SECRET`）與指令選單，不必在本機執行任何指令。對機器人傳 `/start` 確認有回應，回覆裡會附上你的 chat id；要收盤後推播，把這個 chat id 加到 GitHub Variables 的 `TELEGRAM_DEFAULT_CHAT_IDS`，或直接 `/watch` 股票。
+   - 手動設定（例如沒有部署在 Render）：`python -m jobs.set_webhook`，本機的 `TELEGRAM_WEBHOOK_SECRET` 必須和服務上的值相同，否則 webhook 會拒絕 Telegram 的請求。
 
 ## 免費方案的限制與對策
 
@@ -199,7 +223,7 @@ DATABASE_URL=sqlite:///./local.db alembic revision --autogenerate -m "說明"   
 - **FinMind 額度用完**：排程記錄出現「使用量已達上限（HTTP 402）」，或 PWA 按「查看」出現「FinMind 使用量已達上限」：等一小時後再執行；經常發生就降低 `MAX_STOCKS` 或確認 `FINMIND_TOKEN` 有設定。
 - **iframe 空白**：先直接開啟 `https://<api>/ui/gradio/` 確認服務正常，再檢查 `config.js` 的網址。
 - **PWA 離線**：service worker 只快取外殼。iframe 裡的 Python UI 在其他網域，一定要連線。
-- **Telegram 沒回應**：Render 休眠時第一則訊息會等喚醒，Telegram 會自動重送。
+- **Telegram 沒回應**：Render 休眠時第一則訊息會等喚醒，Telegram 會自動重送。一直沒回應就看 Render 的 Logs 有沒有「Telegram webhook 設定失敗」，確認 `TELEGRAM_BOT_TOKEN` 正確後重新部署。
 
 ---
 

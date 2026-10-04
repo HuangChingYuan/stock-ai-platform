@@ -50,7 +50,8 @@ def get_settings() -> Settings:
         cors_origins=_list(env("CORS_ORIGINS", "*")),
         enable_gradio=_bool(env("ENABLE_GRADIO", "true")),
         enable_dash=_bool(env("ENABLE_DASH", "true")),
-        public_base_url=env("PUBLIC_BASE_URL").rstrip("/"),
+        # Render 會自動提供 RENDER_EXTERNAL_URL（服務的公開網址），沒設 PUBLIC_BASE_URL 時直接用它
+        public_base_url=env("PUBLIC_BASE_URL", env("RENDER_EXTERNAL_URL")).rstrip("/"),
         max_watch_per_chat=int(env("MAX_WATCH_PER_CHAT", "10")),
         max_stocks=int(env("MAX_STOCKS", "50")),
         llm_provider_cooldown=float(env("LLM_PROVIDER_COOLDOWN", "1800")),
