@@ -63,6 +63,8 @@ PWA 外殼把它們組合在一起，切換畫面只是換 iframe 的網址。�
 
 **PWA 自選股**：在「代號」輸入股票代號按「查看」，會呼叫 `POST /api/watchlist/{代號}` 加入自選股。資料庫還沒有這檔的股價時，後端會立刻向 FinMind 抓（約 10 秒），之後由每日排程更新。PWA 沒有登入，網頁上加的股票共用一份清單（存在 `watchlist` 資料表，`chat_id` 為 `pwa`，不推播），上限同 `MAX_WATCH_PER_CHAT`；報價牌右上角的 × 可移除。`WATCHLIST` 環境變數裡的股票固定顯示，不能從網頁移除。
 
+**依類股選股**：不知道代號時按「類股」，參考 [Yahoo 股市類股](https://tw.stock.yahoo.com/class/) 的做法，上方切換上市／上櫃（FinMind 有興櫃資料時也會出現「興櫃」），左邊選類股（FinMind 的產業別，例如半導體業、航運業），右邊列出該類股的代號與名稱，可再用名稱或代號篩選；點一檔就跟按「查看」一樣加入自選股。資料來自 `stocks` 資料表（`market` 欄位：`twse` 上市、`tpex` 上櫃、`emerging` 興櫃），API 為 `GET /api/industries` 與 `GET /api/industries/stocks?industry=類股名稱&market=twse`。升級後第一次執行每日排程時，發現股票還沒有上市櫃別會自動重抓股票清單補上；在那之前選單只會顯示「未分類」。
+
 Render 免費 Web Service 只有 512 MB 記憶體。Gradio＋Dash＋FastAPI 在本機實測約 240 MB。再加更多 UI 前，先觀察 Render 的記憶體圖表；不需要的 UI 可用 `ENABLE_GRADIO=false`、`ENABLE_DASH=false` 關閉。
 
 > 為什麼不放 Hugging Face Spaces：目前新建 Gradio／Docker Space 需要付費方案，只有 Static Space 免費。

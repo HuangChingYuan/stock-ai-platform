@@ -3,13 +3,22 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import inspect, text
 
 from core import models  # noqa: F401
-from core.db import Base, engine, init_db
+from core.db import ROOT, Base, engine, init_db
 
 
 def _reset():
     Base.metadata.drop_all(engine)
     with engine.begin() as conn:
         conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+
+def _head():
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "migrations"))
+    return ScriptDirectory.from_config(cfg).get_current_head()
 
 
 def _diff():
@@ -32,7 +41,7 @@ def test_existing_create_all_database_is_stamped_not_rebuilt():
         conn.execute(text("INSERT INTO stocks (stock_id, name) VALUES ('2330', '台積電')"))
     init_db()
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0001"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == _head()
         assert conn.execute(text("SELECT name FROM stocks")).scalar() == "台積電"
     assert "alembic_version" in inspect(engine).get_table_names()
     _reset()

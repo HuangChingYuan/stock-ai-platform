@@ -14,6 +14,7 @@ class Stock(Base):
     stock_id: Mapped[str] = mapped_column(String(10), primary_key=True)
     name: Mapped[str | None] = mapped_column(String(50))
     industry: Mapped[str | None] = mapped_column(String(50))
+    market: Mapped[str | None] = mapped_column(String(10))  # twse 上市、tpex 上櫃、emerging 興櫃（FinMind type）
 
 
 class DailyPrice(Base):
