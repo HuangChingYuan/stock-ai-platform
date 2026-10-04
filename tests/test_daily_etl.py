@@ -20,7 +20,8 @@ def etl(db, monkeypatch):
     def fake_refresh():
         calls["refresh"] += 1
         with session_scope() as session:
-            repo.upsert(session, Stock, [{"stock_id": "2330", "name": "台積電", "industry": "半導體"}], keys=["stock_id"])
+            repo.upsert(session, Stock, [{"stock_id": "2330", "name": "台積電", "industry": "半導體", "market": "twse"}],
+                        keys=["stock_id"])
         return 1
 
     monkeypatch.setattr(daily_etl, "refresh_stock_info", fake_refresh)
@@ -116,6 +117,16 @@ def test_stock_names_refresh_when_target_has_no_name(etl):
     assert calls["refresh"] == 1 or repo.trading_day().weekday() == 0
 
 
+def test_stock_info_refresh_when_target_has_no_market(etl):
+    run, _, calls = etl
+    with session_scope() as session:  # 新增 market 欄位前抓的清單：有名稱但沒有上市櫃別
+        repo.upsert(session, Stock, [{"stock_id": "2330", "name": "台積電", "industry": "半導體"}], keys=["stock_id"])
+    run("--force")
+    assert calls["refresh"] == 1
+    run("--force")
+    assert calls["refresh"] == 1 or repo.trading_day().weekday() == 0
+
+
 def test_trading_day_counts_early_morning_as_previous_day():
     tpe = repo.TAIPEI
     assert repo.trading_day(datetime(2026, 9, 29, 2, 14, tzinfo=tpe)) == date(2026, 9, 28)  # 延遲過午夜
@@ -128,15 +139,21 @@ def test_refresh_stock_info_skips_indices(db, monkeypatch):
     import pandas as pd
 
     raw = pd.DataFrame([
-        {"stock_id": "2330", "stock_name": "台積電", "industry_category": "半導體業"},
-        {"stock_id": "00878", "stock_name": "國泰永續高股息", "industry_category": "ETF"},
-        {"stock_id": "ElectronicProductsDistribution", "stock_name": "電子通路類指數", "industry_category": "Index"},
-        {"stock_id": "TPEx", "stock_name": "櫃買指數", "industry_category": "大盤"},
+        {"stock_id": "2330", "stock_name": "台積電", "industry_category": "半導體業", "type": "twse", "date": "2026-10-02"},
+        {"stock_id": "00878", "stock_name": "國泰永續高股息", "industry_category": "ETF", "type": "twse", "date": "2026-10-02"},
+        {"stock_id": "6488", "stock_name": "環球晶", "industry_category": "半導體業", "type": "tpex", "date": "2026-10-02"},
+        {"stock_id": "2618", "stock_name": "長榮航", "industry_category": "航運業", "type": "tpex", "date": "2010-01-01"},
+        {"stock_id": "2618", "stock_name": "長榮航", "industry_category": "航運業", "type": "twse", "date": "2026-10-02"},
+        {"stock_id": "ElectronicProductsDistribution", "stock_name": "電子通路類指數", "industry_category": "Index",
+         "type": "twse", "date": "2026-10-02"},
+        {"stock_id": "TPEx", "stock_name": "櫃買指數", "industry_category": "大盤", "type": "tpex", "date": "2026-10-02"},
     ])
     monkeypatch.setattr(daily_etl.ds, "_finmind", lambda *a, **k: raw)
-    assert daily_etl.refresh_stock_info() == 2
+    assert daily_etl.refresh_stock_info() == 4
     with session_scope() as session:
-        assert sorted(session.scalars(select(Stock.stock_id))) == ["00878", "2330"]
+        markets = dict(session.execute(select(Stock.stock_id, Stock.market)).all())
+    # 上櫃轉上市（2618）以最新一筆為準
+    assert markets == {"00878": "twse", "2330": "twse", "2618": "twse", "6488": "tpex"}
 
 
 def test_refresh_stock_info_failure_does_not_stop_etl(db, monkeypatch):

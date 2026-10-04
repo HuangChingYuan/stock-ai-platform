@@ -122,13 +122,20 @@ def test_push_digest_skips_pwa_chat(db, monkeypatch):
 def test_industries_and_stocks_by_industry(client):
     c, _ = client
     with session_scope() as s:
-        repo.upsert(s, Stock, [{"stock_id": "2330", "name": "台積電", "industry": "半導體業"},
-                               {"stock_id": "2303", "name": "聯電", "industry": "半導體業"},
-                               {"stock_id": "2603", "name": "長榮", "industry": "航運業"}], keys=["stock_id"])
+        repo.upsert(s, Stock, [{"stock_id": "2330", "name": "台積電", "industry": "半導體業", "market": "twse"},
+                               {"stock_id": "2303", "name": "聯電", "industry": "半導體業", "market": "twse"},
+                               {"stock_id": "6488", "name": "環球晶", "industry": "半導體業", "market": "tpex"},
+                               {"stock_id": "2603", "name": "長榮", "industry": "航運業", "market": "twse"}],
+                    keys=["stock_id"])
     r = c.get("/api/industries")
     assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=300"
-    assert r.json() == [{"industry": "半導體業", "count": 2}, {"industry": "航運業", "count": 1}]  # 沒有產業別的不列
-    r = c.get("/api/industries/stocks", params={"industry": "半導體業"})
+    assert r.json() == [{"market": "twse", "industry": "半導體業", "count": 2},  # 沒有產業別的不列
+                        {"market": "tpex", "industry": "半導體業", "count": 1},
+                        {"market": "twse", "industry": "航運業", "count": 1}]
+    r = c.get("/api/industries/stocks", params={"industry": "半導體業", "market": "twse"})
     assert r.json() == [{"stock_id": "2303", "name": "聯電"}, {"stock_id": "2330", "name": "台積電"}]
+    r = c.get("/api/industries/stocks", params={"industry": "半導體業", "market": "tpex"})
+    assert r.json() == [{"stock_id": "6488", "name": "環球晶"}]
+    assert len(c.get("/api/industries/stocks", params={"industry": "半導體業"}).json()) == 3
     assert c.get("/api/industries/stocks", params={"industry": "不存在"}).json() == []
     assert c.get("/api/industries/stocks").status_code == 422

@@ -124,12 +124,20 @@ button, input { font: inherit; color: inherit; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
   padding: 12px 12px 12px 16px; border-bottom: 1px solid var(--line);
 }
-.picker-head h2 { margin: 0; font-size: 1rem; font-weight: 700; flex: 1 0 auto; }
+.picker-head h2 { margin: 0; font-size: 1rem; font-weight: 700; }
+.picker-head .markets { order: 2; flex: 1 1 100%; }
+.picker-head .market { flex: 1; }
 .picker-head input {
   order: 3; flex: 1 1 100%; padding: 8px 10px;
   border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--canvas);
 }
-.picker-close { border: 0; background: none; font-size: 1.4rem; line-height: 1; padding: 4px 8px; cursor: pointer; }
+.markets { display: flex; gap: 2px; padding: 2px; border-radius: var(--radius-s); background: var(--canvas); }
+.market {
+  padding: 5px 14px; border: 0; border-radius: 4px; background: none;
+  color: var(--ink-soft); font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.market[aria-pressed="true"] { background: var(--ink); color: #f2f4f6; font-weight: 700; }
+.picker-close { margin-left: auto; border: 0; background: none; font-size: 1.4rem; line-height: 1; padding: 4px 8px; cursor: pointer; }
 .picker-body { display: grid; grid-template-columns: minmax(7.5em, 34%) minmax(0, 1fr); min-height: 0; }
 
 .industries { list-style: none; margin: 0; padding: 6px; overflow-y: auto; border-right: 1px solid var(--line); background: var(--canvas); }
@@ -218,6 +226,8 @@ button, input { font: inherit; color: inherit; }
   .add input { flex: 1; width: auto; min-width: 0; }
   .add .pick { flex: 1 0 100%; }
   .picker-head input { order: 0; flex: 0 1 16em; }
+  .picker-head .markets { order: 0; flex: none; margin-right: auto; }
+  .picker-close { margin-left: 0; }
   .stage { padding: 16px 20px; }
   #frame { min-height: 0; }
 }
