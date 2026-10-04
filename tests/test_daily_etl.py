@@ -103,3 +103,13 @@ def test_stock_names_refresh_when_empty_or_monday(etl, monkeypatch):
     before = calls["refresh"]
     run("--force")
     assert calls["refresh"] == before + 1
+
+
+def test_stock_names_refresh_when_target_has_no_name(etl):
+    run, _, calls = etl
+    with session_scope() as session:  # 資料表不是空的，但要處理的股票沒有名稱
+        repo.upsert(session, Stock, [{"stock_id": "2330", "name": None, "industry": None}], keys=["stock_id"])
+    run("--force")
+    assert calls["refresh"] == 1
+    run("--force")
+    assert calls["refresh"] == 1 or repo.today().weekday() == 0

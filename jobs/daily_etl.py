@@ -146,8 +146,9 @@ def main() -> None:
 
     today = repo.today()
     with session_scope() as s:
-        no_names = s.scalar(select(func.count()).select_from(Stock)) == 0
-    if today.weekday() == 0 or no_names:  # 每週一更新一次名稱；資料表是空的就立刻更新
+        names = repo.stock_names(s, stocks)
+    missing = [sid for sid, name in names.items() if name == sid]
+    if today.weekday() == 0 or missing:  # 每週一更新一次名稱；有股票還沒有名稱就立刻更新
         refresh_stock_info()
 
     failed, reports = [], {}
