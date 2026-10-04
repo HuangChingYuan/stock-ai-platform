@@ -45,3 +45,11 @@ def test_telegram_webhook_synced_only_on_render(main, monkeypatch):
     with TestClient(main.app):
         pass
     assert done.wait(5)
+
+
+def test_root_manifest_served_for_gradio(main):
+    # Gradio 頁面固定向網域根目錄要 /manifest.json；缺少會在瀏覽器主控台出現 404
+    r = TestClient(main.app).get("/manifest.json")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/manifest+json")
+    assert r.json()["start_url"] == "/ui/gradio/"

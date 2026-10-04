@@ -16,6 +16,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 
@@ -74,6 +75,16 @@ def health_db():
 @app.get("/")
 def index():
     return {"name": "台股 AI 分析平台", "docs": "/docs", "uis": UIS}
+
+
+@app.get("/manifest.json", include_in_schema=False)
+def manifest():
+    # Gradio 的頁面寫死 <link rel="manifest" href="/manifest.json">（網域根目錄），
+    # 但它掛在 /ui/gradio 底下，根目錄沒有這個檔案，瀏覽器主控台會出現 404
+    return JSONResponse(
+        {"name": "台股 AI 分析", "start_url": "/ui/gradio/", "display": "standalone"},
+        media_type="application/manifest+json",
+    )
 
 
 # ---- 多種 Python UI 掛載（可用環境變數關閉，節省 512MB 記憶體）----
