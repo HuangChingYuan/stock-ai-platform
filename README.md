@@ -104,7 +104,8 @@ python -m pytest -q tests
 2. **GitHub**：推上 repo，到 Settings → Secrets and variables → Actions 設定：
    - Secrets：`DATABASE_URL`、`FINMIND_TOKEN`、各家 LLM 金鑰、`TELEGRAM_BOT_TOKEN`
    - Variables：`WATCHLIST`、`LLM_PROVIDERS`、`TELEGRAM_DEFAULT_CHAT_IDS`、`RENDER_URL`
-   - 選用：`MAX_STOCKS`（排程股票總數上限，預設 50）；Render 上可設 `MAX_WATCH_PER_CHAT`（每個 Telegram 對話的自選股上限，預設 10）
+   - 選用：`MAX_STOCKS`（排程股票總數上限，預設 50）、`LLM_PROVIDER_COOLDOWN`（某家 LLM 失敗後暫停使用的秒數，預設 1800）
+   - Render 上可選設：`MAX_WATCH_PER_CHAT`（每個 Telegram 對話的自選股上限，預設 10）、`REPORT_COOLDOWN_MINUTES`（同一檔報告重新產生的冷卻分鐘數，預設 30）、`REPORT_REGEN_PER_HOUR`（每小時重新產生報告的總次數上限，預設 20）
 3. **初始化資料**：Actions → daily-etl → Run workflow。第一次會抓約 400 天股價與建立資料表。排程只在當天有新股價時才產生報告與推播（休市日自動略過、同一天重跑不重複推播）；假日想先產生報告，勾選 `force`。
 4. **Render**：New → Blueprint，選這個 repo，會建立 `stock-ai-api` 與 `stock-ai-pwa` 兩個服務。在 `stock-ai-api` 填入 `DATABASE_URL`、LLM 金鑰、`PUBLIC_BASE_URL`（服務網址）。
 5. **Streamlit Community Cloud**：New app，Main file 選 `streamlit_app/streamlit_app.py`，在 Secrets 填入：
@@ -113,7 +114,7 @@ python -m pytest -q tests
    WATCHLIST = "2330,2317,2454"
    ```
 6. **PWA**：修改 `pwa/config.js` 的 `apiBase` 與 Streamlit 網址後推送，Render 會自動重新部署。上線後把 API 的 `CORS_ORIGINS` 改成 PWA 網址。
-7. **Telegram**：跟 @BotFather 建立機器人，設定好環境變數後在本機執行 `python -m jobs.set_webhook`。
+7. **Telegram**：跟 @BotFather 建立機器人，設定好環境變數後在本機執行 `python -m jobs.set_webhook`。本機的 `TELEGRAM_WEBHOOK_SECRET` 必須和 Render 上的值相同（Render 會自動產生，到服務的 Environment 頁面複製）；webhook 會拒絕沒有正確 secret 的請求。
 
 ## 免費方案的限制與對策
 

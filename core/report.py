@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import json
+import time
+from collections import deque
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 from sqlalchemy.orm import Session
 
 from core import indicators as ta
 from core import llm, repository as repo
+from core.config import get_settings
+from core.db import session_scope
 from core.models import Report
 
 SYSTEM_PROMPT = """你是台股研究助理。只能根據使用者提供的資料分析，不可引用資料以外的數字或事件。
@@ -57,8 +62,10 @@ def _normalize(data: dict) -> dict:
             "reasons": as_list(data.get("reasons")), "risks": as_list(data.get("risks"))[:3]}
 
 
-def generate(session: Session, stock_id: str, use_llm: bool = True) -> dict:
-    context, prices, ind = build_context(session, stock_id)
+def generate(stock_id: str, use_llm: bool = True) -> dict:
+    """自行開關資料庫連線：呼叫 LLM（可能數十秒）期間不佔用 Neon 連線。"""
+    with session_scope() as s:
+        context, prices, ind = build_context(s, stock_id)
     result = llm.chat_json(SYSTEM_PROMPT, context) if use_llm else None
 
     if result:
@@ -72,12 +79,45 @@ def generate(session: Session, stock_id: str, use_llm: bool = True) -> dict:
         provider, model = "rules", "rule_score"
 
     day = prices.iloc[-1]["date"] if not prices.empty else repo.today()
-    repo.upsert(session, Report, [{
-        "stock_id": stock_id, "date": day, "action": data["action"], "confidence": data["confidence"],
-        "summary": data["summary"], "reasons": "\n".join(data["reasons"]), "risks": "\n".join(data["risks"]),
-        "provider": provider, "model": model,
-    }], keys=["stock_id", "date"])
+    with session_scope() as s:
+        repo.upsert(s, Report, [{
+            "stock_id": stock_id, "date": day, "action": data["action"], "confidence": data["confidence"],
+            "summary": data["summary"], "reasons": "\n".join(data["reasons"]), "risks": "\n".join(data["risks"]),
+            "provider": provider, "model": model,
+            "created_at": _utcnow(),  # 明確寫入：upsert 更新既有報告時 server_default 不會生效
+        }], keys=["stock_id", "date"])
     return {**data, "stock_id": stock_id, "date": str(day), "provider": provider, "model": model}
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+_regen_times: deque[float] = deque()  # 本行程最近一小時內按「重新產生」的時間
+
+
+def regenerate_markdown(stock_id: str) -> str:
+    """UI 按鈕用：有冷卻時間與每小時上限，避免公開網址被連點耗光 LLM 免費額度。"""
+    settings = get_settings()
+    if not repo.valid_stock_id(stock_id):
+        return "請輸入有效的股票代號，例如 2330。"
+    with session_scope() as s:
+        name = repo.stock_name(s, stock_id)
+        has_prices = not repo.prices_df(s, stock_id, limit=1).empty
+        last = repo.latest_report(s, stock_id)
+    if not has_prices:
+        return f"資料庫裡還沒有 {stock_id} 的股價，無法產生報告。"
+
+    cooldown = timedelta(minutes=settings.report_cooldown_minutes)
+    if last is not None and last.created_at and _utcnow() - last.created_at < cooldown:
+        return to_markdown(last, name) + f"\n\n（{settings.report_cooldown_minutes} 分鐘內已產生過，先顯示這份報告）"
+    now = time.time()
+    while _regen_times and now - _regen_times[0] > 3600:
+        _regen_times.popleft()
+    if len(_regen_times) >= settings.report_regen_per_hour:
+        return to_markdown(last, name) + "\n\n（這一小時重新產生的次數已達上限，請稍後再試）"
+    _regen_times.append(now)
+    return to_markdown(generate(stock_id), name)
 
 
 def to_markdown(r: Report | dict | None, name: str = "") -> str:

@@ -30,6 +30,9 @@ class Settings:
     public_base_url: str
     max_watch_per_chat: int
     max_stocks: int
+    llm_provider_cooldown: float
+    report_cooldown_minutes: int
+    report_regen_per_hour: int
 
 
 @lru_cache
@@ -50,4 +53,7 @@ def get_settings() -> Settings:
         public_base_url=env("PUBLIC_BASE_URL").rstrip("/"),
         max_watch_per_chat=int(env("MAX_WATCH_PER_CHAT", "10")),
         max_stocks=int(env("MAX_STOCKS", "50")),
+        llm_provider_cooldown=float(env("LLM_PROVIDER_COOLDOWN", "1800")),
+        report_cooldown_minutes=int(env("REPORT_COOLDOWN_MINUTES", "30")),
+        report_regen_per_hour=int(env("REPORT_REGEN_PER_HOUR", "20")),
     )

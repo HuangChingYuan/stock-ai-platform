@@ -34,11 +34,7 @@ def render(stock_id: str, period: str = "6 個月"):
 
 
 def regenerate(stock_id: str):
-    stock_id = (stock_id or "").strip().upper()
-    with session_scope() as s:
-        data = rpt.generate(s, stock_id)
-        name = repo.stock_name(s, stock_id)
-    return rpt.to_markdown(data, name)
+    return rpt.regenerate_markdown((stock_id or "").strip().upper())
 
 
 def build() -> gr.Blocks:

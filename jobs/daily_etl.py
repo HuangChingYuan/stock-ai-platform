@@ -61,21 +61,48 @@ def sync_stock(stock_id: str, days: int) -> date | None:
     return full.iloc[-1]["date"] if not full.empty else None
 
 
-def push(stock_id: str, report: dict) -> None:
-    settings = get_settings()
-    with session_scope() as s:
-        chats = set(repo.watchers_of(s, stock_id)) | set(settings.telegram_default_chat_ids)
-        sig = ta.signals(repo.indicators_df(s, stock_id, 5), repo.prices_df(s, stock_id, 5))
-        snap = repo.snapshot(s, stock_id)
-    if not chats:
+def push_digest(reports: dict[str, dict]) -> None:
+    """每個對話只收一則盤後彙整（太長才分段），取代每檔股票各發一則。"""
+    if not reports:
         return
-    chg = f"（{snap['change_pct']:+.2f}%）" if snap["change_pct"] is not None else ""
-    text = (f"【盤後】{stock_id} {snap['name']} 收 {snap['close']}{chg}\n"
-            f"訊號：{'；'.join(sig) or '無'}\n"
-            f"AI：{report['action']}（信心 {report['confidence']}）{report['summary']}\n"
-            f"僅供學習研究，非投資建議")
-    for chat in chats:
-        send_telegram(chat, text)
+    settings = get_settings()
+    ids = list(reports)
+    with session_scope() as s:
+        watchers = repo.watchers_map(s, ids)
+        snaps = {x["stock_id"]: x for x in repo.snapshots(s, ids)}
+        inds = repo.latest_rows(s, Indicator, ids, 2)
+        prices = repo.latest_rows(s, DailyPrice, ids, 2)
+
+    blocks = {}
+    for sid, report in reports.items():
+        snap = snaps[sid]
+        sig = ta.signals(repo.rows_df(Indicator, inds[sid]), repo.rows_df(DailyPrice, prices[sid]))
+        chg = f"（{snap['change_pct']:+.2f}%）" if snap["change_pct"] is not None else ""
+        blocks[sid] = (f"{sid} {snap['name']} 收 {snap['close']}{chg}\n"
+                       f"訊號：{'；'.join(sig) or '無'}\n"
+                       f"AI：{report['action']}（信心 {report['confidence']}）{report['summary']}")
+
+    targets: dict[str, list[str]] = {}
+    for sid in ids:
+        for chat in [*watchers[sid], *settings.telegram_default_chat_ids]:
+            if sid not in targets.setdefault(chat, []):
+                targets[chat].append(sid)
+    header = f"【盤後】{max(r['date'] for r in reports.values())}"
+    for chat, sids in targets.items():
+        for text in chunk_messages(header, [blocks[x] for x in sids], "僅供學習研究，非投資建議"):
+            send_telegram(chat, text)
+
+
+def chunk_messages(header: str, blocks: list[str], footer: str, limit: int = 4000) -> list[str]:
+    """Telegram 單則上限 4096 字，超過就分成多則，每則都帶標題與免責聲明。"""
+    out, cur = [], [header]
+    for b in blocks:
+        if len(cur) > 1 and len("\n\n".join([*cur, b, footer])) > limit:
+            out.append("\n\n".join([*cur, footer]))
+            cur = [header]
+        cur.append(b)
+    out.append("\n\n".join([*cur, footer]))
+    return out
 
 
 def main() -> None:
@@ -105,7 +132,7 @@ def main() -> None:
         raise SystemExit("股票清單是空的：請設定 WATCHLIST 或用 --stocks 指定")
 
     today = repo.today()
-    failed = []
+    failed, reports = [], {}
     for sid in stocks:
         try:
             latest = sync_stock(sid, args.days)
@@ -118,14 +145,17 @@ def main() -> None:
                 if done:  # 同一天重跑：避免重複呼叫 LLM 與重複推播
                     log.info("%s 今天已產生過報告，略過（要重跑請加 --force）", sid)
                     continue
-            with session_scope() as s:
-                report = rpt.generate(s, sid, use_llm=not args.no_llm)
-            log.info("%s 報告：%s（%s）", sid, report["action"], report["provider"])
-            if not args.no_push:
-                push(sid, report)
+            reports[sid] = rpt.generate(sid, use_llm=not args.no_llm)
+            log.info("%s 報告：%s（%s）", sid, reports[sid]["action"], reports[sid]["provider"])
         except Exception:  # 單檔失敗不影響其他股票
             log.exception("%s 處理失敗", sid)
             failed.append(sid)
+    if not args.no_push:
+        try:
+            push_digest(reports)
+        except Exception:
+            log.exception("推播失敗")
+            failed.append("推播")
     if failed:
         raise SystemExit(f"失敗：{', '.join(failed)}")
 

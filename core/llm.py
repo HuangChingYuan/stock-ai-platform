@@ -43,11 +43,14 @@ PROVIDERS: dict[str, Provider] = {
 }
 
 _last_call: dict[str, float] = {}
+_down_until: dict[str, float] = {}  # 失敗過的 provider 暫停到這個時間，不再每次都先試它
 
 
 def available() -> list[Provider]:
     names = get_settings().llm_providers
-    return [PROVIDERS[n] for n in names if n in PROVIDERS and os.getenv(PROVIDERS[n].key_env)]
+    now = time.time()
+    return [PROVIDERS[n] for n in names
+            if n in PROVIDERS and os.getenv(PROVIDERS[n].key_env) and _down_until.get(n, 0) <= now]
 
 
 def _extract_json(text: str) -> dict:
@@ -79,5 +82,11 @@ def chat_json(system: str, user: str, max_tokens: int = 4000) -> tuple[dict, str
             )
             return _extract_json(resp.choices[0].message.content or ""), p.name, model
         except Exception as exc:  # 429、模型下架、JSON 解析失敗…都換下一家
-            log.warning("LLM %s/%s 失敗，改用下一家：%s", p.name, model, exc)
+            if isinstance(exc, ValueError):  # JSON 解析失敗：單次輸出格式不對，不代表這家壞掉
+                log.warning("LLM %s/%s 回傳格式錯誤，改用下一家：%s", p.name, model, exc)
+            else:
+                # 額度用完、逾時、金鑰或模型錯誤：之後一段時間直接跳過，省下批次中每檔的等待時間
+                _down_until[p.name] = time.time() + get_settings().llm_provider_cooldown
+                log.warning("LLM %s/%s 失敗，暫停使用 %.0f 秒：%s",
+                            p.name, model, get_settings().llm_provider_cooldown, exc)
     return None

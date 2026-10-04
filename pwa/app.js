@@ -45,7 +45,7 @@
   async function loadQuotes() {
     if (!(await wakeBackend())) return;
     try {
-      const r = await fetch(`${api}/api/stocks`, { cache: "no-store" });
+      const r = await fetch(`${api}/api/stocks`); // API 帶 max-age=300，交給瀏覽器快取
       if (!r.ok) throw new Error(r.status);
       state.quotes = await r.json();
       store.set("quotes", state.quotes);

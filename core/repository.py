@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from core.models import DailyPrice, Indicator, MonthlyRevenue, News, Report, Stock, Watch
 
@@ -113,6 +113,32 @@ def stock_name(session: Session, stock_id: str) -> str:
     return s.name if s and s.name else stock_id
 
 
+def stock_names(session: Session, stock_ids: list[str]) -> dict[str, str]:
+    rows = session.execute(select(Stock.stock_id, Stock.name).where(Stock.stock_id.in_(stock_ids))).all() if stock_ids else []
+    names = {sid: name for sid, name in rows if name}
+    return {sid: names.get(sid, sid) for sid in stock_ids}
+
+
+def latest_rows(session: Session, model, stock_ids: list[str], n: int) -> dict[str, list]:
+    """一次查出多檔股票各自最近 n 筆（依日期由舊到新），取代逐檔查詢。"""
+    if not stock_ids:
+        return {}
+    rn = func.row_number().over(partition_by=model.stock_id, order_by=model.date.desc()).label("rn")
+    sub = select(model, rn).where(model.stock_id.in_(stock_ids)).subquery()
+    alias = aliased(model, sub)
+    stmt = select(alias).where(sub.c.rn <= n).order_by(sub.c.stock_id, sub.c.date)
+    out: dict[str, list] = {sid: [] for sid in stock_ids}
+    for r in session.scalars(stmt):
+        out[r.stock_id].append(r)
+    return out
+
+
+def rows_df(model, rows: list) -> pd.DataFrame:
+    """把 latest_rows 的結果轉成與 prices_df / indicators_df 相同欄位的 DataFrame。"""
+    cols = [c.name for c in model.__table__.columns if c.name != "stock_id"]
+    return pd.DataFrame([{c: getattr(r, c) for c in cols} for r in rows], columns=cols)
+
+
 def watched_stock_ids(session: Session) -> list[str]:
     return sorted(set(session.scalars(select(Watch.stock_id)).all()))
 
@@ -121,14 +147,27 @@ def watch_count(session: Session, chat_id: str) -> int:
     return session.scalar(select(func.count()).select_from(Watch).where(Watch.chat_id == chat_id)) or 0
 
 
-def watchers_of(session: Session, stock_id: str) -> list[str]:
-    return list(session.scalars(select(Watch.chat_id).where(Watch.stock_id == stock_id)).all())
+def watchers_map(session: Session, stock_ids: list[str]) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {sid: [] for sid in stock_ids}
+    if stock_ids:
+        for sid, chat in session.execute(select(Watch.stock_id, Watch.chat_id).where(Watch.stock_id.in_(stock_ids))):
+            out[sid].append(chat)
+    return out
+
+
+def snapshots(session: Session, stock_ids: list[str]) -> list[dict]:
+    """PWA 自選股列、Telegram /price 共用的最新報價摘要；多檔共用 2 次查詢。"""
+    prices = latest_rows(session, DailyPrice, stock_ids, 2)
+    names = stock_names(session, stock_ids)
+    return [_snapshot(sid, names[sid], rows_df(DailyPrice, prices[sid])) for sid in stock_ids]
 
 
 def snapshot(session: Session, stock_id: str) -> dict:
-    """PWA 自選股列、Telegram /price 共用的最新報價摘要。"""
-    df = prices_df(session, stock_id, limit=2)
-    out = {"stock_id": stock_id, "name": stock_name(session, stock_id), "date": None,
+    return snapshots(session, [stock_id])[0]
+
+
+def _snapshot(stock_id: str, name: str, df: pd.DataFrame) -> dict:
+    out = {"stock_id": stock_id, "name": name, "date": None,
            "close": None, "change": None, "change_pct": None, "volume": None}
     if df.empty:
         return out
