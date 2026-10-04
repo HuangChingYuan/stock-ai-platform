@@ -28,6 +28,8 @@ class Settings:
     enable_gradio: bool
     enable_dash: bool
     public_base_url: str
+    max_watch_per_chat: int
+    max_stocks: int
 
 
 @lru_cache
@@ -46,4 +48,6 @@ def get_settings() -> Settings:
         enable_gradio=_bool(env("ENABLE_GRADIO", "true")),
         enable_dash=_bool(env("ENABLE_DASH", "true")),
         public_base_url=env("PUBLIC_BASE_URL").rstrip("/"),
+        max_watch_per_chat=int(env("MAX_WATCH_PER_CHAT", "10")),
+        max_stocks=int(env("MAX_STOCKS", "50")),
     )

@@ -2,14 +2,23 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import date
 from typing import Any, Iterable
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from core.models import DailyPrice, Indicator, MonthlyRevenue, News, Report, Stock, Watch
+
+
+# 上市櫃代號：4 碼個股、5–6 碼 ETF，可帶一個英文字尾（例：2881A、00631L、00679B）
+STOCK_ID_RE = re.compile(r"\d{4,6}[A-Z]?")
+
+
+def valid_stock_id(stock_id: str) -> bool:
+    return bool(STOCK_ID_RE.fullmatch(stock_id or ""))
 
 
 def _clean(v: Any) -> Any:
@@ -90,7 +99,7 @@ def revenue_df(session: Session, stock_id: str, limit: int = 36) -> pd.DataFrame
 
 
 def latest_news(session: Session, stock_id: str, limit: int = 8) -> list[News]:
-    stmt = select(News).where(News.stock_id == stock_id).order_by(News.date.desc()).limit(limit)
+    stmt = select(News).where(News.stock_id == stock_id).order_by(News.date.desc().nulls_last()).limit(limit)
     return list(session.scalars(stmt).all())
 
 
@@ -106,6 +115,10 @@ def stock_name(session: Session, stock_id: str) -> str:
 
 def watched_stock_ids(session: Session) -> list[str]:
     return sorted(set(session.scalars(select(Watch.stock_id)).all()))
+
+
+def watch_count(session: Session, chat_id: str) -> int:
+    return session.scalar(select(func.count()).select_from(Watch).where(Watch.chat_id == chat_id)) or 0
 
 
 def watchers_of(session: Session, stock_id: str) -> list[str]:

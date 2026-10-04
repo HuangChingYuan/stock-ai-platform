@@ -104,7 +104,8 @@ python -m pytest -q tests
 2. **GitHub**：推上 repo，到 Settings → Secrets and variables → Actions 設定：
    - Secrets：`DATABASE_URL`、`FINMIND_TOKEN`、各家 LLM 金鑰、`TELEGRAM_BOT_TOKEN`
    - Variables：`WATCHLIST`、`LLM_PROVIDERS`、`TELEGRAM_DEFAULT_CHAT_IDS`、`RENDER_URL`
-3. **初始化資料**：Actions → daily-etl → Run workflow。第一次會抓約 400 天股價與建立資料表。
+   - 選用：`MAX_STOCKS`（排程股票總數上限，預設 50）；Render 上可設 `MAX_WATCH_PER_CHAT`（每個 Telegram 對話的自選股上限，預設 10）
+3. **初始化資料**：Actions → daily-etl → Run workflow。第一次會抓約 400 天股價與建立資料表。排程只在當天有新股價時才產生報告與推播（休市日自動略過、同一天重跑不重複推播）；假日想先產生報告，勾選 `force`。
 4. **Render**：New → Blueprint，選這個 repo，會建立 `stock-ai-api` 與 `stock-ai-pwa` 兩個服務。在 `stock-ai-api` 填入 `DATABASE_URL`、LLM 金鑰、`PUBLIC_BASE_URL`（服務網址）。
 5. **Streamlit Community Cloud**：New app，Main file 選 `streamlit_app/streamlit_app.py`，在 Secrets 填入：
    ```toml

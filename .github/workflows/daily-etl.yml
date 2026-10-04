@@ -14,6 +14,10 @@ on:
         description: "不呼叫 LLM（改用規則式報告）"
         type: boolean
         default: false
+      force:
+        description: "休市日或今天已產生過報告也照樣產生並推播"
+        type: boolean
+        default: false
 
 concurrency:
   group: daily-etl
@@ -47,8 +51,10 @@ jobs:
         env:
           INPUT_STOCKS: ${{ inputs.stocks }}
           INPUT_NO_LLM: ${{ inputs.no_llm }}
+          INPUT_FORCE: ${{ inputs.force }}
         run: |
           ARGS=()
           if [ -n "$INPUT_STOCKS" ]; then ARGS+=(--stocks "$INPUT_STOCKS"); fi
           if [ "$INPUT_NO_LLM" = "true" ]; then ARGS+=(--no-llm); fi
+          if [ "$INPUT_FORCE" = "true" ]; then ARGS+=(--force); fi
           python -m jobs.daily_etl "${ARGS[@]}"
