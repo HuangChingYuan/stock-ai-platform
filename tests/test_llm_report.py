@@ -89,3 +89,32 @@ def test_regenerate_has_cooldown_and_hourly_limit(db, monkeypatch):
 def test_regenerate_rejects_unknown_stock(db):
     assert "有效的股票代號" in rpt.regenerate_markdown("ABC")
     assert "還沒有 9999 的股價" in rpt.regenerate_markdown("9999")
+
+
+def test_report_stores_context_rule_action_and_flows(db, monkeypatch):
+    from datetime import timedelta
+
+    from core.models import Institutional, Report, Valuation
+
+    day = repo.today()
+    with session_scope() as s:
+        repo.upsert(s, DailyPrice, [{"stock_id": "2330", "date": day - timedelta(days=i), "open": 1, "high": 1,
+                                     "low": 1, "close": 100.0 + i, "volume": 1000} for i in range(5)],
+                    keys=["stock_id", "date"])
+        repo.upsert(s, Institutional, [{"stock_id": "2330", "date": day, "foreign_net": 1_234_000,
+                                        "trust_net": -5_000, "dealer_net": None}], keys=["stock_id", "date"])
+        repo.upsert(s, Valuation, [{"stock_id": "2330", "date": day, "per": 22.5, "pbr": 6.1,
+                                    "dividend_yield": 1.8}], keys=["stock_id", "date"])
+    prompts = []
+    monkeypatch.setattr(rpt.llm, "chat_json", lambda system, user: prompts.append(user) or (
+        {"action": "買進", "confidence": 70, "summary": "s", "reasons": ["外資買超"], "risks": []}, "gemini", "m"))
+
+    out = rpt.generate("2330")
+    assert "外資 +1,234 投信 -5 自營 —" in prompts[0] and "本益比 22.50" in prompts[0]
+    with session_scope() as s:
+        r = s.get(Report, ("2330", day))
+    assert r.context == prompts[0] and r.action == "買進"
+    assert r.rule_action == out["rule_action"] and r.rule_confidence is not None
+    md = rpt.to_markdown(r, with_context=True)
+    assert "規則式判斷" in md and "外資 +1,234" in md
+    assert "外資 +1,234" not in rpt.to_markdown(r)

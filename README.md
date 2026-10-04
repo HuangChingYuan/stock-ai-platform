@@ -32,6 +32,7 @@ core/            共用核心（Web、排程、Streamlit 都匯入）
   indicators.py    MA、RSI、KD、MACD、布林（純 pandas）
   llm.py           多家 LLM 免費額度，依序備援
   report.py        建議買賣報告
+  backtest.py      回測：AI 建議與規則式判斷的勝率
   notify.py        Telegram 發訊
 app/             Render Web Service
   main.py          FastAPI，掛載 Gradio 與 Dash
@@ -41,8 +42,8 @@ app/             Render Web Service
   ui/gradio_app.py ui/dash_app.py
 streamlit_app/   Streamlit Community Cloud
 pwa/             PWA 外殼（純靜態）
-jobs/            排程與工具腳本
-.github/workflows/  daily-etl.yml、keep-warm.yml、streamlit-wake.yml
+jobs/            排程與工具腳本（backtest.py：回測報告）
+.github/workflows/  daily-etl.yml、backtest.yml、keep-warm.yml、streamlit-wake.yml
 render.yaml      Render Blueprint（一次建立 API 與 PWA 兩個服務）
 ```
 
@@ -87,6 +88,32 @@ Render 免費 Web Service 只有 512 MB 記憶體。Gradio＋Dash＋FastAPI 在�
 - 部分免費方案可能把輸入資料用於改善模型。這裡送出的是公開市場資料，但不要放入個人或公司機密。
 - 報告只在盤後排程時批次產生並存進資料庫。網頁與 Telegram 只讀取已存的報告，不會每次都呼叫 LLM。
 
+### 給 LLM 的資料與報告依據
+
+報告的輸入包含：近 20 日收盤與均量、技術指標與訊號、近 10 日三大法人買賣超（FinMind `TaiwanStockInstitutionalInvestorsBuySell`，依外資／投信／自營商彙總，單位張）、本益比／股價淨值比／殖利率與近一年本益比區間（`TaiwanStockPER`）、近 6 個月營收年增率、近期新聞標題。法人與本益比抓不到時只記錄警告，報告照常產生。
+
+每份報告會在 `reports` 存下：
+
+- `context`：當時送給 LLM 的完整資料。Gradio「AI 報告」分頁底下可展開「產生報告時提供的資料」，對照 `reasons` 檢查理由是不是有根據。
+- `rule_action`、`rule_confidence`：同一天的規則式判斷。LLM 成功時也會算，回測才能在相同日期比較兩者。
+
+## 回測：LLM 有沒有比規則好
+
+```bash
+python -m jobs.backtest                          # 全部股票，持有 5 與 20 個交易日
+python -m jobs.backtest --stocks 2330 --horizons 1,5,10 --csv backtest.csv
+```
+
+把歷史 `reports` 和報告日之後的收盤價比對：買進在 N 個交易日後上漲算贏、賣出在 N 日後下跌算贏，觀望不計入勝率。表格列出 LLM、規則式，以及對照組「每天都買」（同一批日子 N 日後上漲的比例）。預設只比較有 LLM 報告的日子，兩者樣本相同；`--all-days` 讓規則式改用全部報告日。新增 `rule_action` 欄位前的舊報告，會用報告日當天以前的指標重算規則式判斷。
+
+`backtest.yml` 每週六自動執行一次，也可以手動執行；結果在該次執行的 Summary 頁，逐筆明細在 Artifacts。
+
+解讀時注意：
+
+- 勝率要和「每天都買」比。多頭時期每天都買的勝率本來就高，只有贏過它才代表判斷有用。
+- 每天都產生報告，持有 20 日的報酬彼此重疊，樣本不是獨立的；累積幾個月、樣本數上百後再下結論。
+- 沒有計入手續費、證交稅與滑價，也不是完整的交易策略模擬。
+
 ## 本機開發
 
 ```bash
@@ -128,6 +155,7 @@ DATABASE_URL=sqlite:///./local.db alembic revision --autogenerate -m "說明"   
 
 - `ci.yml`：PR 與推送到 main 時執行 ruff、鎖定檔檢查、匯入完整 Web 服務與 pytest。
 - `daily-etl.yml`：每個交易日盤後排程；每週一順便更新上市櫃股票名稱。
+- `backtest.yml`：每週六回測一次，比較 LLM 與規則式的勝率（只需要 `DATABASE_URL`）。
 - `streamlit-wake.yml`：Streamlit Community Cloud 約 12 小時沒人瀏覽就休眠，PWA 的「總覽」會變成休眠頁。這個 workflow 每 6 小時用無頭瀏覽器開啟 app，休眠中就按喚醒按鈕（`jobs/wake_streamlit.py`）。換了網址就設定 Variables 的 `STREAMLIT_URL`；失敗時到該次執行的 Artifacts 下載截圖。PWA 另外在「總覽」下方提示「開新分頁喚醒」，作為排程失效時的備援。
 - `keepalive.yml`：公開 repo 連續 60 天沒有活動時，GitHub 會停用排程 workflow；這個 workflow 每月重新啟用它們。若仍收到 GitHub 的停用通知信，到 Actions 頁面手動 Enable 即可。
 

@@ -53,6 +53,26 @@ class MonthlyRevenue(Base):
     revenue: Mapped[int | None] = mapped_column(BigInteger)
 
 
+class Institutional(Base):
+    """三大法人買賣超（股數，正為買超）。FinMind TaiwanStockInstitutionalInvestorsBuySell 依法人別彙總。"""
+    __tablename__ = "institutional"
+    stock_id: Mapped[str] = mapped_column(String(10), primary_key=True)
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    foreign_net: Mapped[int | None] = mapped_column(BigInteger)   # 外資（含外資自營商）
+    trust_net: Mapped[int | None] = mapped_column(BigInteger)     # 投信
+    dealer_net: Mapped[int | None] = mapped_column(BigInteger)    # 自營商（自行買賣＋避險）
+
+
+class Valuation(Base):
+    """本益比、股價淨值比、殖利率。FinMind TaiwanStockPER。"""
+    __tablename__ = "valuations"
+    stock_id: Mapped[str] = mapped_column(String(10), primary_key=True)
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    per: Mapped[float | None] = mapped_column(Float)
+    pbr: Mapped[float | None] = mapped_column(Float)
+    dividend_yield: Mapped[float | None] = mapped_column(Float)
+
+
 class News(Base):
     __tablename__ = "news"
     __table_args__ = (UniqueConstraint("stock_id", "link", name="uq_news_stock_link"),)
@@ -75,6 +95,10 @@ class Report(Base):
     risks: Mapped[str] = mapped_column(Text)
     provider: Mapped[str] = mapped_column(String(30))        # gemini / groq / ... / rules
     model: Mapped[str] = mapped_column(String(100))
+    # 同一天的規則式判斷：LLM 成功時也照算，回測才能在相同日期比較兩者
+    rule_action: Mapped[str | None] = mapped_column(String(10))
+    rule_confidence: Mapped[int | None] = mapped_column(Integer)
+    context: Mapped[str | None] = mapped_column(Text)        # 當時送給 LLM 的資料，用來檢查理由是否有根據
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

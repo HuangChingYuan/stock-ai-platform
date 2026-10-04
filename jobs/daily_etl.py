@@ -12,6 +12,7 @@ import logging
 import time
 from datetime import date, timedelta
 
+import pandas as pd
 from sqlalchemy import func, select
 
 from core import data_sources as ds
@@ -20,7 +21,7 @@ from core import report as rpt
 from core import repository as repo
 from core.config import get_settings
 from core.db import init_db, session_scope
-from core.models import DailyPrice, Indicator, MonthlyRevenue, News, Report, Stock
+from core.models import DailyPrice, Indicator, Institutional, MonthlyRevenue, News, Report, Stock, Valuation
 from core.notify import send_telegram
 
 log = logging.getLogger("daily_etl")
@@ -44,6 +45,8 @@ def sync_stock(stock_id: str, days: int) -> date | None:
     today = repo.trading_day()
     with session_scope() as s:
         existing = repo.prices_df(s, stock_id, limit=1)
+        has_flows = not repo.institutional_df(s, stock_id, limit=1).empty
+        has_valuation = not repo.valuation_df(s, stock_id, limit=1).empty
     # 已有資料只補最近 10 天；第一次抓 days 天，讓 MA60 等長週期指標有足夠樣本
     start = today - timedelta(days=10 if not existing.empty else days)
 
@@ -53,6 +56,9 @@ def sync_stock(stock_id: str, days: int) -> date | None:
     time.sleep(1)
     news = ds.fetch_news(stock_id, today - timedelta(days=3))
     time.sleep(1)
+    # 法人與本益比依各自資料表判斷是否回補（既有股票升級後也會補）；本益比回補一年，報告才有區間可比較
+    flows = _optional(ds.fetch_institutional, stock_id, today - timedelta(days=10 if has_flows else 30))
+    valuation = _optional(ds.fetch_valuation, stock_id, today - timedelta(days=10 if has_valuation else 400))
 
     with session_scope() as s:
         repo.upsert(s, DailyPrice, [{"stock_id": stock_id, **r} for r in prices.to_dict("records")],
@@ -61,6 +67,10 @@ def sync_stock(stock_id: str, days: int) -> date | None:
                     keys=["stock_id", "year", "month"])
         repo.upsert(s, News, [{"stock_id": stock_id, **r} for r in news.head(20).to_dict("records")],
                     keys=["stock_id", "link"])
+        repo.upsert(s, Institutional, [{"stock_id": stock_id, **r} for r in flows.to_dict("records")],
+                    keys=["stock_id", "date"])
+        repo.upsert(s, Valuation, [{"stock_id": stock_id, **r} for r in valuation.to_dict("records")],
+                    keys=["stock_id", "date"])
         full = repo.prices_df(s, stock_id, limit=300)
         if not full.empty:
             ind = ta.compute(full)
@@ -70,8 +80,20 @@ def sync_stock(stock_id: str, days: int) -> date | None:
                 ind = ind.tail(20)
             repo.upsert(s, Indicator, [{"stock_id": stock_id, **r} for r in ind.to_dict("records")],
                         keys=["stock_id", "date"])
-    log.info("%s：股價 %d、營收 %d、新聞 %d 筆", stock_id, len(prices), len(revenue), len(news))
+    log.info("%s：股價 %d、營收 %d、新聞 %d、法人 %d、本益比 %d 筆",
+             stock_id, len(prices), len(revenue), len(news), len(flows), len(valuation))
     return full.iloc[-1]["date"] if not full.empty else None
+
+
+def _optional(fetch, stock_id: str, start: date):
+    """法人、本益比只是報告的補充資料：抓不到就略過，不讓整檔股票失敗。"""
+    try:
+        df = fetch(stock_id, start)
+    except Exception as exc:
+        log.warning("%s %s 失敗（略過）：%s", stock_id, fetch.__name__, str(exc)[:200])
+        df = pd.DataFrame()
+    time.sleep(1)
+    return df
 
 
 def push_digest(reports: dict[str, dict]) -> None:
