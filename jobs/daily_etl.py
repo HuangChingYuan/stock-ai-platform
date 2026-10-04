@@ -41,7 +41,7 @@ def refresh_stock_info() -> int:
 
 def sync_stock(stock_id: str, days: int) -> date | None:
     """回傳資料庫中該股最新的股價日期。"""
-    today = repo.today()
+    today = repo.trading_day()
     with session_scope() as s:
         existing = repo.prices_df(s, stock_id, limit=1)
     # 已有資料只補最近 10 天；第一次抓 days 天，讓 MA60 等長週期指標有足夠樣本
@@ -144,10 +144,11 @@ def main() -> None:
     if not stocks:
         raise SystemExit("股票清單是空的：請設定 WATCHLIST 或用 --stocks 指定")
 
-    today = repo.today()
+    today = repo.trading_day()
     with session_scope() as s:
-        no_names = s.scalar(select(func.count()).select_from(Stock)) == 0
-    if today.weekday() == 0 or no_names:  # 每週一更新一次名稱；資料表是空的就立刻更新
+        names = repo.stock_names(s, stocks)
+    missing = [sid for sid, name in names.items() if name == sid]
+    if today.weekday() == 0 or missing:  # 每週一更新一次名稱；有股票還沒有名稱就立刻更新
         refresh_stock_info()
 
     failed, reports = [], {}

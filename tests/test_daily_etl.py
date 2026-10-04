@@ -1,5 +1,5 @@
 import sys
-from datetime import timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -13,7 +13,7 @@ from jobs import daily_etl
 def etl(db, monkeypatch):
     """把擷取、報告、推播換成假的，只測 main() 的流程判斷。"""
     calls = {"generate": [], "push": [], "refresh": 0}
-    state = {"latest": repo.today()}
+    state = {"latest": repo.trading_day()}
     monkeypatch.setattr(daily_etl, "sync_stock", lambda sid, days: state["latest"])
 
     def fake_refresh():
@@ -51,7 +51,7 @@ def test_trading_day_generates_and_skips_invalid_ids(etl):
 
 def test_holiday_skips_report_and_push(etl):
     run, state, calls = etl
-    state["latest"] = repo.today() - timedelta(days=1)
+    state["latest"] = repo.trading_day() - timedelta(days=1)
     run()
     assert calls["generate"] == [] and calls["push"] == []
 
@@ -70,7 +70,7 @@ def test_push_digest_sends_one_message_per_chat(db, monkeypatch):
 
     sent = []
     monkeypatch.setattr(daily_etl, "send_telegram", lambda chat, text: sent.append((chat, text)))
-    day = repo.today()
+    day = repo.trading_day()
     with session_scope() as s:
         repo.upsert(s, DailyPrice, [{"stock_id": sid, "date": day, "open": 1, "high": 1, "low": 1, "close": 10.0,
                                      "volume": 1} for sid in ("2330", "2317", "2454")], keys=["stock_id", "date"])
@@ -97,9 +97,27 @@ def test_stock_names_refresh_when_empty_or_monday(etl, monkeypatch):
     run()
     assert calls["refresh"] == 1  # 股票清單是空的：立刻更新
     run("--force")
-    assert calls["refresh"] == 1 or repo.today().weekday() == 0
-    monday = next(repo.today() - timedelta(days=i) for i in range(7) if (repo.today() - timedelta(days=i)).weekday() == 0)
-    monkeypatch.setattr(daily_etl.repo, "today", lambda: monday)
+    assert calls["refresh"] == 1 or repo.trading_day().weekday() == 0
+    monday = next(repo.trading_day() - timedelta(days=i) for i in range(7) if (repo.trading_day() - timedelta(days=i)).weekday() == 0)
+    monkeypatch.setattr(daily_etl.repo, "trading_day", lambda: monday)
     before = calls["refresh"]
     run("--force")
     assert calls["refresh"] == before + 1
+
+
+def test_stock_names_refresh_when_target_has_no_name(etl):
+    run, _, calls = etl
+    with session_scope() as session:  # 資料表不是空的，但要處理的股票沒有名稱
+        repo.upsert(session, Stock, [{"stock_id": "2330", "name": None, "industry": None}], keys=["stock_id"])
+    run("--force")
+    assert calls["refresh"] == 1
+    run("--force")
+    assert calls["refresh"] == 1 or repo.trading_day().weekday() == 0
+
+
+def test_trading_day_counts_early_morning_as_previous_day():
+    tpe = repo.TAIPEI
+    assert repo.trading_day(datetime(2026, 9, 29, 2, 14, tzinfo=tpe)) == date(2026, 9, 28)  # 延遲過午夜
+    assert repo.trading_day(datetime(2026, 9, 28, 18, 30, tzinfo=tpe)) == date(2026, 9, 28)
+    assert repo.trading_day(datetime(2026, 9, 28, 16, 20, tzinfo=timezone.utc)) == date(2026, 9, 28)  # 台灣 00:20
+    assert repo.trading_day(datetime(2026, 9, 29, 6, 0, tzinfo=tpe)) == date(2026, 9, 29)
