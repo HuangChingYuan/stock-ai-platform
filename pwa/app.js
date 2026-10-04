@@ -253,6 +253,109 @@
   });
   $("add-input").addEventListener("input", (e) => e.target.setCustomValidity(""));
 
+  // ---------- 類股選股：參考 Yahoo 股市類股分類，先選類股再點代號 ----------
+  const picker = { industries: null, stocks: new Map(), current: store.get("industry", null) };
+
+  async function getJSON(path) {
+    const r = await fetch(`${api}${path}`);
+    if (!r.ok) throw new Error(r.status);
+    return r.json();
+  }
+
+  function pickNote(text) { $("picks-note").textContent = text; }
+
+  async function openPicker() {
+    $("picker").showModal();
+    $("picker-filter").value = "";
+    if (picker.industries) return renderIndustries();
+    pickNote("讀取類股中");
+    $("pick-list").replaceChildren();
+    if (!(await wakeBackend())) return pickNote("無法連線到後端，請稍後再試");
+    try {
+      picker.industries = await getJSON("/api/industries");
+    } catch {
+      return pickNote("類股讀取失敗，請稍後再試");
+    }
+    if (!picker.industries.length) return pickNote("股票清單還沒建立，請先執行每日排程");
+    renderIndustries();
+  }
+
+  function renderIndustries() {
+    const list = picker.industries;
+    if (!list.some((i) => i.industry === picker.current)) picker.current = list[0].industry;
+    $("industries").replaceChildren(...list.map((i) => {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "industry";
+      b.setAttribute("aria-pressed", String(i.industry === picker.current));
+      b.innerHTML = `<span class="i-name"></span><span class="i-count"></span>`;
+      b.querySelector(".i-name").textContent = i.industry;
+      b.querySelector(".i-count").textContent = i.count;
+      b.addEventListener("click", () => selectIndustry(i.industry));
+      li.append(b);
+      return li;
+    }));
+    $("industries").querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    loadIndustry(picker.current);
+  }
+
+  function selectIndustry(name) {
+    picker.current = name;
+    store.set("industry", name);
+    $("picker-filter").value = "";
+    renderIndustries();
+  }
+
+  async function loadIndustry(name) {
+    if (!picker.stocks.has(name)) {
+      pickNote(`讀取 ${name} 中`);
+      $("pick-list").replaceChildren();
+      try {
+        picker.stocks.set(name, await getJSON(`/api/industries/stocks?industry=${encodeURIComponent(name)}`));
+      } catch {
+        return pickNote("股票讀取失敗，請稍後再試");
+      }
+      if (picker.current !== name) return; // 讀取期間已切換類股
+    }
+    renderPicks();
+  }
+
+  function renderPicks() {
+    if (!picker.stocks.has(picker.current)) return; // 還在讀取
+    const all = picker.stocks.get(picker.current);
+    const q = $("picker-filter").value.trim().toUpperCase();
+    const rows = q ? all.filter((s) => s.stock_id.includes(q) || s.name.toUpperCase().includes(q)) : all;
+    const watched = new Set(state.quotes.map((s) => s.stock_id));
+    pickNote(q ? `${picker.current}：符合「${q}」${rows.length} 檔` : `${picker.current}：共 ${all.length} 檔，點選加入自選股`);
+    $("pick-list").replaceChildren(...rows.map((s) => {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "pick-stock";
+      b.innerHTML = `<span class="p-id"></span><span class="p-name"></span>`;
+      b.querySelector(".p-id").textContent = s.stock_id;
+      b.querySelector(".p-name").textContent = s.name;
+      if (watched.has(s.stock_id)) {
+        b.classList.add("watched");
+        b.title = "已在自選股";
+      }
+      b.addEventListener("click", () => {
+        $("picker").close();
+        if (watched.has(s.stock_id)) selectStock(s.stock_id);
+        else addStock(s.stock_id);
+      });
+      li.append(b);
+      return li;
+    }));
+  }
+
+  $("pick-open").addEventListener("click", openPicker);
+  $("picker-close").addEventListener("click", () => $("picker").close());
+  $("picker-filter").addEventListener("input", renderPicks);
+  // 點對話框外的半透明背景也關閉
+  $("picker").addEventListener("click", (e) => { if (e.target === $("picker")) $("picker").close(); });
+
   // ---------- 網路狀態 ----------
   window.addEventListener("online", () => { loadQuotes(); openFrame(); });
   window.addEventListener("offline", () => setStatus("down", "離線"));

@@ -129,6 +129,23 @@ def stock_names(session: Session, stock_ids: list[str]) -> dict[str, str]:
     return {sid: names.get(sid, sid) for sid in stock_ids}
 
 
+def industries(session: Session) -> list[dict]:
+    """類股清單與檔數（FinMind 產業別），檔數多的排前面；沒有產業別的不列。"""
+    n = func.count().label("count")
+    rows = session.execute(
+        select(Stock.industry, n).where(Stock.industry.is_not(None), Stock.industry != "")
+        .group_by(Stock.industry).order_by(n.desc(), Stock.industry)
+    ).all()
+    return [{"industry": ind, "count": cnt} for ind, cnt in rows]
+
+
+def stocks_in_industry(session: Session, industry: str) -> list[dict]:
+    rows = session.execute(
+        select(Stock.stock_id, Stock.name).where(Stock.industry == industry).order_by(Stock.stock_id)
+    ).all()
+    return [{"stock_id": sid, "name": name or sid} for sid, name in rows]
+
+
 def latest_rows(session: Session, model, stock_ids: list[str], n: int) -> dict[str, list]:
     """一次查出多檔股票各自最近 n 筆（依日期由舊到新），取代逐檔查詢。"""
     if not stock_ids:

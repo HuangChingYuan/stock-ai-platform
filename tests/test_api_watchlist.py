@@ -117,3 +117,18 @@ def test_push_digest_skips_pwa_chat(db, monkeypatch):
     monkeypatch.setattr(daily_etl, "send_telegram", lambda chat, text: sent.append(chat))
     daily_etl.push_digest({"2603": {"action": "觀望", "confidence": 50, "summary": "", "date": str(repo.today())}})
     assert sent == ["123"]
+
+
+def test_industries_and_stocks_by_industry(client):
+    c, _ = client
+    with session_scope() as s:
+        repo.upsert(s, Stock, [{"stock_id": "2330", "name": "台積電", "industry": "半導體業"},
+                               {"stock_id": "2303", "name": "聯電", "industry": "半導體業"},
+                               {"stock_id": "2603", "name": "長榮", "industry": "航運業"}], keys=["stock_id"])
+    r = c.get("/api/industries")
+    assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=300"
+    assert r.json() == [{"industry": "半導體業", "count": 2}, {"industry": "航運業", "count": 1}]  # 沒有產業別的不列
+    r = c.get("/api/industries/stocks", params={"industry": "半導體業"})
+    assert r.json() == [{"stock_id": "2303", "name": "聯電"}, {"stock_id": "2330", "name": "台積電"}]
+    assert c.get("/api/industries/stocks", params={"industry": "不存在"}).json() == []
+    assert c.get("/api/industries/stocks").status_code == 422

@@ -1,5 +1,5 @@
 /* Service worker：只快取外殼本身。iframe 內的 Python UI 在其他網域，需要連線才能顯示。 */
-const CACHE = "shell-v1";
+const CACHE = "shell-v2";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "manifest.webmanifest",
                "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png"];
 

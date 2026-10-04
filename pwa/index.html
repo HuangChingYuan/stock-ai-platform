@@ -30,6 +30,7 @@
         <label class="visually-hidden" for="add-input">輸入股票代號</label>
         <input id="add-input" inputmode="numeric" autocomplete="off" placeholder="代號" maxlength="6">
         <button type="submit">查看</button>
+        <button type="button" class="pick" id="pick-open" aria-haspopup="dialog">類股</button>
       </form>
     </nav>
 
@@ -51,6 +52,22 @@
       </div>
     </main>
   </div>
+
+  <dialog class="picker" id="picker" aria-labelledby="picker-title">
+    <header class="picker-head">
+      <h2 id="picker-title">依類股選股</h2>
+      <label class="visually-hidden" for="picker-filter">篩選代號或名稱</label>
+      <input id="picker-filter" type="search" autocomplete="off" placeholder="篩選代號或名稱">
+      <button type="button" class="picker-close" id="picker-close" aria-label="關閉">×</button>
+    </header>
+    <div class="picker-body">
+      <ul class="industries" id="industries" aria-label="類股"></ul>
+      <section class="picks" aria-live="polite">
+        <p class="picks-note" id="picks-note"></p>
+        <ul class="pick-list" id="pick-list"></ul>
+      </section>
+    </div>
+  </dialog>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
