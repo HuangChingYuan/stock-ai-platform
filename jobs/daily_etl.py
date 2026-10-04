@@ -30,11 +30,11 @@ def refresh_stock_info() -> int:
     """更新上市櫃股票名稱與產業（新上市、改名）。失敗只記錄警告，不影響每日流程。"""
     try:
         info = ds.fetch_stock_info()
-    except ds.DataSourceError as exc:
-        log.warning("股票清單更新失敗（下次再試）：%s", exc)
+        with session_scope() as s:
+            n = repo.upsert(s, Stock, info.to_dict("records"), keys=["stock_id"])
+    except Exception as exc:  # 資料源或寫入失敗都不能讓整個排程中斷
+        log.warning("股票清單更新失敗（下次再試）：%s", str(exc)[:300])
         return 0
-    with session_scope() as s:
-        n = repo.upsert(s, Stock, info.to_dict("records"), keys=["stock_id"])
     log.info("股票清單已更新 %d 筆", n)
     return n
 
