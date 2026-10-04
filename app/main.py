@@ -1,6 +1,7 @@
 """FastAPI 主程式：一個 Render 免費 Web Service 同時提供 API 與多種 Python UI。
 
-  /health          喚醒與健康檢查
+  /health          喚醒與健康檢查（不碰資料庫）
+  /health/db       連同資料庫一起檢查（手動用）
   /api/*           JSON API（/api/watchlist 供 PWA 加入、移除自選股）
   /telegram/*      Telegram webhook
   /ui/gradio/      Gradio（個股 K 線＋AI 報告）
@@ -46,6 +47,12 @@ UIS: dict[str, str] = {}
 
 @app.get("/health")
 def health():
+    # Render 健康檢查與 keep-warm 會頻繁呼叫：不查資料庫，Neon 才能在閒置 5 分鐘後暫停、不耗 CU-hours
+    return {"status": "ok", "uis": UIS}
+
+
+@app.get("/health/db")
+def health_db():
     with session_scope() as s:
         rows = s.scalar(select(func.count()).select_from(DailyPrice))
     return {"status": "ok", "db": engine.dialect.name, "price_rows": rows, "uis": UIS}

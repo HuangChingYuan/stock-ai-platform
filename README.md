@@ -74,17 +74,18 @@ Render 免費 Web Service 只有 512 MB 記憶體。Gradio＋Dash＋FastAPI 在�
 
 `core/llm.py` 以 OpenAI SDK 串接多家 OpenAI 相容端點，依 `LLM_PROVIDERS` 的順序嘗試。某家額度用完（HTTP 429）或出錯，就換下一家。全部失敗時改用技術指標規則產生報告，所以沒有任何金鑰也能跑。
 
-| 名稱 | 取得金鑰 | 預設模型（可用環境變數覆寫） |
-|---|---|---|
-| `gemini` | Google AI Studio | `gemini-2.5-flash` |
-| `groq` | console.groq.com | `llama-3.3-70b-versatile` |
-| `openrouter` | openrouter.ai（模型名稱帶 `:free`） | `meta-llama/llama-3.3-70b-instruct:free` |
-| `cerebras` | cloud.cerebras.ai | `llama-3.3-70b` |
+| 名稱 | 取得金鑰 | 預設模型（`*_MODEL` 覆寫） | 呼叫間隔 | 輸出上限 | 免費額度（2026/10） |
+|---|---|---|---|---|---|
+| `gemini` | Google AI Studio | `gemini-3.8-flash` | 6 秒 | 4000 | 只有 Flash 系列；額度依專案而定，以 AI Studio 主控台為準 |
+| `groq` | console.groq.com | `openai/gpt-oss-120b` | 20 秒 | 4000 | 30 RPM、1,000 RPD、8K TPM、200K TPD（整個組織共用） |
+| `openrouter` | openrouter.ai（模型名稱帶 `:free`） | `openrouter/free` | 6 秒 | 4000 | 20 RPM；未儲值每天 50 次，累計儲值 ≥ $10 後每天 1,000 次 |
+| `cerebras` | cloud.cerebras.ai | `llama-3.3-70b` | 13 秒 | 1500 | 5 RPM、30K TPM、每日 1M tokens；context 8K |
 
 注意事項：
 
 - 各家免費額度與可用模型經常調整。部署前到各家主控台確認目前額度與模型名稱，名稱不對時改 `*_MODEL` 環境變數即可。
-- 免費層的每分鐘請求數很低，`LLM_MIN_INTERVAL`（預設 6 秒）會在同一家的呼叫之間等待。
+- 免費層的每分鐘請求數與 tokens 很低，同一家的呼叫之間會等待上表的間隔（依各家 RPM／TPM 換算）。`LLM_MIN_INTERVAL`（預設 6 秒）是所有供應商的下限；個別調整用 `GROQ_MIN_INTERVAL`、`CEREBRAS_MAX_TOKENS` 這類 `<名稱>_MIN_INTERVAL`、`<名稱>_MAX_TOKENS` 環境變數。輸出上限包含推理模型的思考 tokens，太低會截斷 JSON。
+- Gemini 放第一順位：Groq 的每日 200K tokens 大約只夠 50 份報告，OpenRouter 未儲值每天只有 50 次，適合當備援。
 - 部分免費方案可能把輸入資料用於改善模型。這裡送出的是公開市場資料，但不要放入個人或公司機密。
 - 報告只在盤後排程時批次產生並存進資料庫。網頁與 Telegram 只讀取已存的報告，不會每次都呼叫 LLM。
 
@@ -157,7 +158,7 @@ DATABASE_URL=sqlite:///./local.db alembic revision --autogenerate -m "說明"   
 - `daily-etl.yml`：每個交易日盤後排程；每週一順便更新上市櫃股票名稱。
 - `backtest.yml`：每週六回測一次，比較 LLM 與規則式的勝率（只需要 `DATABASE_URL`）。
 - `streamlit-wake.yml`：Streamlit Community Cloud 約 12 小時沒人瀏覽就休眠，PWA 的「總覽」會變成休眠頁。這個 workflow 每 6 小時用無頭瀏覽器開啟 app，休眠中就按喚醒按鈕（`jobs/wake_streamlit.py`）。換了網址就設定 Variables 的 `STREAMLIT_URL`；失敗時到該次執行的 Artifacts 下載截圖。PWA 另外在「總覽」下方提示「開新分頁喚醒」，作為排程失效時的備援。
-- `keepalive.yml`：公開 repo 連續 60 天沒有活動時，GitHub 會停用排程 workflow；這個 workflow 每月重新啟用它們。若仍收到 GitHub 的停用通知信，到 Actions 頁面手動 Enable 即可。
+- `keepalive.yml`：公開 repo 連續 60 天沒有活動時，GitHub 會停用排程 workflow；這個 workflow 每月重新啟用它們（daily-etl、backtest、keep-warm、streamlit-wake 與自己）。新增排程 workflow 時記得加進清單。若仍收到 GitHub 的停用通知信，到 Actions 頁面手動 Enable 即可。
 
 ## 部署步驟
 
@@ -182,15 +183,20 @@ DATABASE_URL=sqlite:///./local.db alembic revision --autogenerate -m "說明"   
 | 平台 | 限制 | 本專案的對策 |
 |---|---|---|
 | Render Web Service | 閒置 15 分鐘休眠，喚醒約 1 分鐘；每月 750 小時；檔案系統不保留；不支援 cron | PWA 外殼先開，並顯示「後端喚醒中」；資料全存 Neon；排程交給 GitHub Actions；只開一個 Web Service；`keep-warm.yml` 只在盤中喚醒 |
+| Render 流量 | 2026/8/1 起 Hobby 方案每月含 5 GB 對外流量（Web Service 與 Static Site 共用），超出每 GB $0.15 | Gradio、Dash 的前端檔案每次冷開約數 MB：定期看 Render 的 Bandwidth 圖表，不用的 UI 以 `ENABLE_GRADIO`／`ENABLE_DASH` 關閉 |
 | Render Postgres | 免費版 30 天後到期 | 改用 Neon |
-| Neon | 每專案 0.5 GB、每月 100 CU-hours，閒置 5 分鐘暫停 | 只存結構化資料；新聞只存標題與連結；指標每次只回寫最近 20 日 |
-| Streamlit Community Cloud | 一段時間沒人使用會休眠 | 直接讀 Neon，不依賴 Render |
-| GitHub Actions | 排程可能延遲；公開 repo 長期沒有活動時，排程可能被自動停用 | 保留 `workflow_dispatch` 手動執行；定期推送 commit |
+| Neon | 每專案 0.5 GB、每月 100 CU-hours，閒置 5 分鐘暫停 | 只存結構化資料；新聞只存標題與連結；指標每次只回寫最近 20 日；`/health`（Render 健康檢查與 keep-warm 會打）不查資料庫，Neon 才能閒置暫停，要連資料庫一起檢查用 `/health/db` |
+| Streamlit Community Cloud | 記憶體上限約 2.7 GB；12 小時沒人瀏覽就休眠 | 直接讀 Neon，不依賴 Render；`streamlit-wake.yml` 每 6 小時喚醒 |
+| GitHub Actions | 公開 repo 標準 runner 免費不限分鐘（私有 repo 每月 2,000 分鐘）；排程可能延遲；公開 repo 60 天沒有活動會停用排程 | 保留 `workflow_dispatch` 手動執行；`keepalive.yml` 每月重新啟用排程 |
+| FinMind | 未帶 token 每小時 300 次，註冊後帶 token 600 次；超過回 HTTP 402，IP 封鎖約一小時 | 一定要設 `FINMIND_TOKEN`；每檔每天 4–5 次（月營收只在每月 1–15 日抓），50 檔約 250 次；遇到 402 不重試、立刻停止整批，已完成的報告照常推播 |
+| LLM | 見「LLM 免費額度」 | 多家依序備援，每家各自的呼叫間隔與輸出上限；全部失敗改用規則式報告 |
+| Telegram Bot API | 免費；每個對話約每秒 1 則 | 每個對話盤後只發一則彙整 |
 
 各平台額度會調整，以官網公告為準。
 
 ## 常見問題
 
+- **FinMind 額度用完**：排程記錄出現「使用量已達上限（HTTP 402）」，或 PWA 按「查看」出現「FinMind 使用量已達上限」：等一小時後再執行；經常發生就降低 `MAX_STOCKS` 或確認 `FINMIND_TOKEN` 有設定。
 - **iframe 空白**：先直接開啟 `https://<api>/ui/gradio/` 確認服務正常，再檢查 `config.js` 的網址。
 - **PWA 離線**：service worker 只快取外殼。iframe 裡的 Python UI 在其他網域，一定要連線。
 - **Telegram 沒回應**：Render 休眠時第一則訊息會等喚醒，Telegram 會自動重送。

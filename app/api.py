@@ -101,6 +101,9 @@ def add_watch(stock_id: str):
 
         try:
             fetched = sync_stock(sid, 400) is not None
+        except ds.QuotaExceededError as exc:
+            log.warning("即時擷取 %s 失敗：%s", sid, exc)
+            raise HTTPException(503, "FinMind 使用量已達上限，約一小時後再試") from exc
         except ds.DataSourceError as exc:
             log.warning("即時擷取 %s 失敗：%s", sid, exc)
             raise HTTPException(502, "資料來源暫時無法連線，請稍後再試") from exc

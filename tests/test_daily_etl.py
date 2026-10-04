@@ -196,3 +196,43 @@ def test_optional_fetch_failure_returns_empty(monkeypatch):
         raise daily_etl.ds.DataSourceError("HTTP 402")
 
     assert daily_etl._optional(broken, "2330", date(2026, 9, 1)).empty
+
+
+def test_quota_error_is_not_retried(monkeypatch):
+    calls = []
+
+    class Resp:
+        status_code = 402
+
+    monkeypatch.setattr(daily_etl.ds.requests, "get", lambda *a, **k: calls.append(1) or Resp())
+    monkeypatch.setattr(daily_etl.ds.time, "sleep", lambda s: None)
+    with pytest.raises(daily_etl.ds.QuotaExceededError):
+        daily_etl.ds.fetch_prices("2330", date(2026, 9, 1))
+    assert calls == [1]  # 402 時重試只會延長 IP 封鎖
+
+
+def test_optional_fetch_reraises_quota_error(monkeypatch):
+    monkeypatch.setattr(daily_etl.time, "sleep", lambda s: None)
+
+    def exhausted(stock_id, start):
+        raise daily_etl.ds.QuotaExceededError("HTTP 402")
+
+    with pytest.raises(daily_etl.ds.QuotaExceededError):
+        daily_etl._optional(exhausted, "2330", date(2026, 9, 1))
+
+
+def test_quota_error_stops_batch_but_pushes_done_reports(etl, monkeypatch):
+    run, state, calls = etl
+    synced = []
+
+    def fake_sync(sid, days):
+        synced.append(sid)
+        if sid == "2317":
+            raise daily_etl.ds.QuotaExceededError("HTTP 402")
+        return state["latest"]
+
+    monkeypatch.setattr(daily_etl, "sync_stock", fake_sync)
+    monkeypatch.setattr(sys, "argv", ["daily_etl", "--stocks", "2330,2317,2454"])
+    with pytest.raises(SystemExit, match="2317, 2454"):
+        daily_etl.main()
+    assert synced == ["2330", "2317"] and calls["push"] == ["2330"]
