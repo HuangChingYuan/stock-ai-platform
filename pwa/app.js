@@ -136,16 +136,41 @@
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = "重新載入";
-      b.addEventListener("click", () => { frame.removeAttribute("src"); openFrame(); });
+      b.addEventListener("click", reloadFrame);
       $("veil").append(b);
     }
   }
+
+  // 閒置會休眠的主機（例如 Streamlit Community Cloud）：iframe 跨網域，讀不到裡面是否為休眠頁，
+  // 所以固定在畫面下方提示；喚醒要在新分頁按按鈕，回到這裡時自動重新載入。
+  const wakeDismissed = new Set();
+  let wakePending = false;
+
+  function wakeNote(view) {
+    const show = Boolean(view?.wakeUrl) && !wakeDismissed.has(view.id);
+    $("wake-note").hidden = !show;
+    if (!show) return;
+    $("wake-text").textContent = `${view.engine} 免費主機閒置會休眠。看到「Zzzz」畫面時，請開新分頁按喚醒按鈕，啟動後回到這裡會自動重新載入。`;
+    $("wake-link").href = view.wakeUrl.replace("{stock}", encodeURIComponent(state.stock));
+  }
+
+  function reloadFrame() { frame.removeAttribute("src"); openFrame(); }
+
+  $("wake-link").addEventListener("click", () => { wakePending = true; });
+  $("wake-reload").addEventListener("click", reloadFrame);
+  $("wake-close").addEventListener("click", () => { wakeDismissed.add(state.view); wakeNote(null); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !wakePending) return;
+    wakePending = false;
+    reloadFrame();
+  });
 
   async function openFrame() {
     const view = cfg.views.find((v) => v.id === state.view);
     const url = view.url.replace("{api}", api).replace("{stock}", encodeURIComponent(state.stock));
     if (frame.getAttribute("src") === url) return;
     frame.title = `${view.label}（${view.engine}）`;
+    wakeNote(null);
 
     if (!navigator.onLine) return veil("目前離線", "連上網路後，分析畫面會自動載入。");
     if (view.needsApi !== false && state.backend !== "ready") {
@@ -157,6 +182,7 @@
     clearTimeout(loadTimer);
     loadTimer = setTimeout(() => veil("載入時間較長", "如果畫面一直空白，可以重新載入。", true), 45000);
     frame.src = url;
+    wakeNote(view);
   }
 
   frame.addEventListener("load", () => {

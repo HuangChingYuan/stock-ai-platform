@@ -1,0 +1,34 @@
+# Streamlit Community Cloud 約 12 小時沒人瀏覽就休眠，休眠時 PWA 的「總覽」只會顯示休眠頁。
+# 每 6 小時用無頭瀏覽器開一次 app；休眠中就按喚醒按鈕（curl 不算瀏覽，叫不醒）。
+# 網址預設為 stock-ai-overview；換了網址就在 Settings > Variables 設定 STREAMLIT_URL。
+name: streamlit-wake
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright==1.63.0 && python -m playwright install --with-deps chromium
+      - name: Wake Streamlit app
+        env:
+          STREAMLIT_URL: ${{ vars.STREAMLIT_URL || 'https://stock-ai-overview.streamlit.app' }}
+        run: python -m jobs.wake_streamlit
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: streamlit-wake-screenshot
+          path: streamlit-wake.png
+          if-no-files-found: ignore
+          retention-days: 7
