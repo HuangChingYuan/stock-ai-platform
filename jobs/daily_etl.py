@@ -98,6 +98,8 @@ def push_digest(reports: dict[str, dict]) -> None:
     targets: dict[str, list[str]] = {}
     for sid in ids:
         for chat in [*watchers[sid], *settings.telegram_default_chat_ids]:
+            if chat == repo.PWA_CHAT_ID:  # PWA 加的自選股只更新資料，沒有 Telegram 對話可推播
+                continue
             if sid not in targets.setdefault(chat, []):
                 targets[chat].append(sid)
     header = f"【盤後】{max(r['date'] for r in reports.values())}"

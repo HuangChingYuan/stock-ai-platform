@@ -45,7 +45,8 @@
   async function loadQuotes() {
     if (!(await wakeBackend())) return;
     try {
-      const r = await fetch(`${api}/api/stocks`); // API 帶 max-age=300，交給瀏覽器快取
+      // no-cache：自選股會在網頁上增減，不能拿瀏覽器快取裡 5 分鐘前的清單
+      const r = await fetch(`${api}/api/stocks`, { cache: "no-cache" });
       if (!r.ok) throw new Error(r.status);
       state.quotes = await r.json();
       store.set("quotes", state.quotes);
@@ -77,8 +78,19 @@
       btn.setAttribute("aria-label", `${q.stock_id} ${q.name || ""} 收盤 ${fmt(q.close)} ${pct}`);
       btn.addEventListener("click", () => selectStock(q.stock_id));
       li.append(btn);
+      if (q.removable) {
+        const rm = document.createElement("button");
+        rm.type = "button";
+        rm.className = "q-remove";
+        rm.textContent = "×";
+        rm.setAttribute("aria-label", `從自選股移除 ${q.stock_id}`);
+        rm.addEventListener("click", () => removeStock(q.stock_id));
+        li.append(rm);
+      }
       return li;
     }));
+    // 手機上報價列是橫向捲動，新加入或選取的股票要捲到看得見
+    $("quotes").querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
   function selectStock(id) {
@@ -191,12 +203,53 @@
     veil(null);
   });
 
-  // ---------- 輸入代號 ----------
+  // ---------- 輸入代號：加入自選股，資料庫沒有資料時後端會立刻抓 ----------
+  function inputError(msg) {
+    $("add-input").setCustomValidity(msg);
+    $("add-input").reportValidity();
+  }
+
+  async function addStock(id) {
+    const submit = $("add-form").querySelector("button");
+    submit.disabled = true;
+    // 第一次查看要從 FinMind 下載約 10 秒；很快就回應的（已有資料）不閃提示
+    const slow = setTimeout(() => veil("下載資料中", `${id} 第一次查看，正在抓股價、營收與新聞，約需 10 秒。`), 800);
+    try {
+      if (!(await wakeBackend())) return inputError("無法連線到後端，請稍後再試");
+      const r = await fetch(`${api}/api/watchlist/${encodeURIComponent(id)}`, { method: "POST" });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) return inputError(body.detail || "加入失敗，請稍後再試");
+      state.quotes = [...state.quotes.filter((q) => q.stock_id !== id), body];
+      store.set("quotes", state.quotes);
+      $("add-input").value = "";
+      selectStock(id);
+    } catch {
+      inputError(navigator.onLine ? "加入失敗，請稍後再試" : "目前離線");
+    } finally {
+      clearTimeout(slow);
+      submit.disabled = false;
+      if ($("veil-title").textContent === "下載資料中") veil(null);
+    }
+  }
+
+  async function removeStock(id) {
+    try {
+      const r = await fetch(`${api}/api/watchlist/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!r.ok) throw new Error(r.status);
+    } catch {
+      return setStatus("down", "移除失敗，請稍後再試");
+    }
+    state.quotes = state.quotes.filter((q) => q.stock_id !== id);
+    store.set("quotes", state.quotes);
+    if (state.stock === id) selectStock(state.quotes[0]?.stock_id || cfg.defaultStock);
+    else renderQuotes();
+  }
+
   $("add-form").addEventListener("submit", (e) => {
     e.preventDefault();
-    const v = $("add-input").value.trim();
-    if (/^[0-9A-Za-z]{4,6}$/.test(v)) { selectStock(v); $("add-input").value = ""; }
-    else $("add-input").setCustomValidity("請輸入 4 到 6 碼股票代號"), $("add-input").reportValidity();
+    const v = $("add-input").value.trim().toUpperCase();
+    if (/^\d{4,6}[A-Z]?$/.test(v)) addStock(v);
+    else inputError("請輸入 4 到 6 碼股票代號");
   });
   $("add-input").addEventListener("input", (e) => e.target.setCustomValidity(""));
 
