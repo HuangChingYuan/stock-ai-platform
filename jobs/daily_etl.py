@@ -171,8 +171,9 @@ def main() -> None:
     today = repo.trading_day()
     with session_scope() as s:
         names = repo.stock_names(s, stocks)
+        no_market = repo.markets_missing(s, stocks)
     missing = [sid for sid, name in names.items() if name == sid]
-    if today.weekday() == 0 or missing:  # 每週一更新一次名稱；有股票還沒有名稱就立刻更新
+    if today.weekday() == 0 or missing or no_market:  # 每週一更新一次；有股票還沒有名稱或上市櫃別就立刻更新
         refresh_stock_info()
 
     failed, reports = [], {}

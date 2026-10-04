@@ -36,6 +36,21 @@ def list_stocks():
         return [{**snap, "removable": snap["stock_id"] in pwa} for snap in repo.snapshots(s, ids)]
 
 
+@router.get("/industries")
+def list_industries():
+    """類股清單（PWA「類股」選單），每筆含市場別與檔數。market：twse 上市、tpex 上櫃、emerging 興櫃。"""
+    with session_scope() as s:
+        return repo.industries(s)
+
+
+@router.get("/industries/stocks")
+def industry_stocks(industry: str = Query(..., min_length=1, max_length=50),
+                    market: str | None = Query(None, max_length=10)):
+    """某類股的股票代號與名稱，可用 market 限定上市或上櫃。類股名稱用查詢參數，避免名稱裡的斜線被當成路徑。"""
+    with session_scope() as s:
+        return repo.stocks_in_industry(s, industry, market)
+
+
 def _pwa_ids(session) -> list[str]:
     return list(session.scalars(select(Watch.stock_id).where(Watch.chat_id == repo.PWA_CHAT_ID)))
 

@@ -143,6 +143,33 @@ def stock_names(session: Session, stock_ids: list[str]) -> dict[str, str]:
     return {sid: names.get(sid, sid) for sid in stock_ids}
 
 
+def industries(session: Session) -> list[dict]:
+    """各市場（上市、上櫃…）的類股與檔數（FinMind 產業別），檔數多的排前面；沒有產業別的不列。
+    market 為 None：股票清單還沒抓到市場別。"""
+    n = func.count().label("count")
+    rows = session.execute(
+        select(Stock.market, Stock.industry, n).where(Stock.industry.is_not(None), Stock.industry != "")
+        .group_by(Stock.market, Stock.industry).order_by(n.desc(), Stock.industry)
+    ).all()
+    return [{"market": m, "industry": ind, "count": cnt} for m, ind, cnt in rows]
+
+
+def stocks_in_industry(session: Session, industry: str, market: str | None = None) -> list[dict]:
+    stmt = select(Stock.stock_id, Stock.name).where(Stock.industry == industry)
+    if market:
+        stmt = stmt.where(Stock.market == market)
+    rows = session.execute(stmt.order_by(Stock.stock_id)).all()
+    return [{"stock_id": sid, "name": name or sid} for sid, name in rows]
+
+
+def markets_missing(session: Session, stock_ids: list[str]) -> bool:
+    """這些股票有沒有還沒抓到市場別的（新增 market 欄位後的舊資料）。"""
+    if not stock_ids:
+        return False
+    stmt = select(func.count()).select_from(Stock).where(Stock.stock_id.in_(stock_ids), Stock.market.is_(None))
+    return bool(session.scalar(stmt))
+
+
 def latest_rows(session: Session, model, stock_ids: list[str], n: int) -> dict[str, list]:
     """一次查出多檔股票各自最近 n 筆（依日期由舊到新），取代逐檔查詢。"""
     if not stock_ids:

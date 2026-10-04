@@ -12,6 +12,15 @@ def _reset():
         conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
 
 
+def _head():
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "migrations"))
+    return ScriptDirectory.from_config(cfg).get_current_head()
+
+
 def _diff():
     with engine.connect() as conn:
         return compare_metadata(MigrationContext.configure(conn), Base.metadata)
@@ -45,7 +54,7 @@ def test_existing_create_all_database_is_stamped_not_rebuilt():
         conn.execute(text("INSERT INTO stocks (stock_id, name) VALUES ('2330', '台積電')"))
     init_db()
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0002"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == _head()
         assert conn.execute(text("SELECT name FROM stocks")).scalar() == "台積電"
     assert "alembic_version" in inspect(engine).get_table_names()
     assert _diff() == []  # 標記基準版後再升級到最新版

@@ -1,7 +1,7 @@
 """reports 保留輸入資料與規則式判斷；新增三大法人與本益比資料表
 
-Revision ID: 0002
-Revises: 0001
+Revision ID: 0003
+Revises: 0002
 Create Date: 2026-10-04 12:00:00.000000
 """
 from __future__ import annotations
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = '0002'
-down_revision = '0001'
+revision = '0003'
+down_revision = '0002'
 branch_labels = None
 depends_on = None
 

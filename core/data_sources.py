@@ -53,11 +53,15 @@ def fetch_stock_info() -> pd.DataFrame:
     df = _finmind("TaiwanStockInfo", None, date(2000, 1, 1))
     if df.empty:
         return df
-    df = df.rename(columns={"stock_name": "name", "industry_category": "industry"})
+    df = df.rename(columns={"stock_name": "name", "industry_category": "industry", "type": "market"})
+    if "market" not in df:
+        df["market"] = None
+    if "date" in df:  # 上櫃轉上市的股票兩種都有，留最新的一筆
+        df = df.sort_values("date", ascending=False, kind="stable")
     # 清單裡也有大盤與類股指數（如 ElectronicProductsDistribution），只留股票與 ETF 代號
     df = df[df["stock_id"].astype(str).map(valid_stock_id)]
     df = df.assign(name=df["name"].str.slice(0, 50), industry=df["industry"].str.slice(0, 50))
-    return df[["stock_id", "name", "industry"]].drop_duplicates("stock_id")
+    return df[["stock_id", "name", "industry", "market"]].drop_duplicates("stock_id")
 
 
 def fetch_prices(stock_id: str, start: date, end: date | None = None) -> pd.DataFrame:
