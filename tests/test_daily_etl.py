@@ -150,3 +150,32 @@ def test_refresh_stock_info_failure_does_not_stop_etl(db, monkeypatch):
 
     monkeypatch.setattr(daily_etl.repo, "upsert", broken_upsert)
     assert daily_etl.refresh_stock_info() == 0
+
+
+def test_fetch_institutional_sums_by_investor_type(monkeypatch):
+    import pandas as pd
+
+    raw = pd.DataFrame([
+        {"date": "2026-09-28", "stock_id": "2330", "name": "Foreign_Investor", "buy": 5000, "sell": 1000},
+        {"date": "2026-09-28", "stock_id": "2330", "name": "Foreign_Dealer_Self", "buy": 0, "sell": 500},
+        {"date": "2026-09-28", "stock_id": "2330", "name": "Investment_Trust", "buy": 100, "sell": 300},
+        {"date": "2026-09-28", "stock_id": "2330", "name": "Dealer_self", "buy": 10, "sell": 0},
+        {"date": "2026-09-28", "stock_id": "2330", "name": "Dealer_Hedging", "buy": 0, "sell": 30},
+        {"date": "2026-09-28", "stock_id": "2330", "name": "total", "buy": 9, "sell": 9},
+        {"date": "2026-09-29", "stock_id": "2330", "name": "Foreign_Investor", "buy": 1, "sell": 2},
+    ])
+    monkeypatch.setattr(daily_etl.ds, "_finmind", lambda *a, **k: raw)
+    rows = daily_etl.ds.fetch_institutional("2330", date(2026, 9, 1)).to_dict("records")
+    assert rows == [
+        {"date": date(2026, 9, 28), "foreign_net": 3500, "trust_net": -200, "dealer_net": -20},
+        {"date": date(2026, 9, 29), "foreign_net": -1, "trust_net": None, "dealer_net": None},
+    ]
+
+
+def test_optional_fetch_failure_returns_empty(monkeypatch):
+    monkeypatch.setattr(daily_etl.time, "sleep", lambda s: None)
+
+    def broken(stock_id, start):
+        raise daily_etl.ds.DataSourceError("HTTP 402")
+
+    assert daily_etl._optional(broken, "2330", date(2026, 9, 1)).empty

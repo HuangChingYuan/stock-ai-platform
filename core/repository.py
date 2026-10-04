@@ -11,7 +11,7 @@ import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased
 
-from core.models import DailyPrice, Indicator, MonthlyRevenue, News, Report, Stock, Watch
+from core.models import DailyPrice, Indicator, Institutional, MonthlyRevenue, News, Report, Stock, Valuation, Watch
 
 
 TAIPEI = ZoneInfo("Asia/Taipei")
@@ -80,6 +80,20 @@ def indicators_df(session: Session, stock_id: str, limit: int = 250) -> pd.DataF
     rows = session.scalars(stmt).all()
     df = pd.DataFrame([{c: getattr(r, c) for c in cols} for r in rows])
     return df.sort_values("date").reset_index(drop=True) if not df.empty else df
+
+
+def institutional_df(session: Session, stock_id: str, limit: int = 20) -> pd.DataFrame:
+    return _history_df(session, Institutional, stock_id, limit)
+
+
+def valuation_df(session: Session, stock_id: str, limit: int = 250) -> pd.DataFrame:
+    return _history_df(session, Valuation, stock_id, limit)
+
+
+def _history_df(session: Session, model, stock_id: str, limit: int) -> pd.DataFrame:
+    """主鍵為（stock_id, date）的資料表：取最近 limit 筆，依日期由舊到新。"""
+    stmt = select(model).where(model.stock_id == stock_id).order_by(model.date.desc()).limit(limit)
+    return rows_df(model, list(session.scalars(stmt))[::-1])
 
 
 def revenue_df(session: Session, stock_id: str, limit: int = 36) -> pd.DataFrame:

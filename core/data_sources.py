@@ -82,3 +82,37 @@ def fetch_news(stock_id: str, start: date) -> pd.DataFrame:
         return df
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     return df[["date", "title", "source", "link"]].dropna(subset=["link"]).drop_duplicates("link")
+
+
+# 法人別 → 欄位；舊資料的自營商只有一筆 Dealer，之後拆成自行買賣與避險
+_INSTITUTION_COLS = {
+    "Foreign_Investor": "foreign_net", "Foreign_Dealer_Self": "foreign_net",
+    "Investment_Trust": "trust_net",
+    "Dealer": "dealer_net", "Dealer_self": "dealer_net", "Dealer_Hedging": "dealer_net",
+}
+
+
+def fetch_institutional(stock_id: str, start: date) -> pd.DataFrame:
+    """三大法人每日買賣超（股數），每天一列：date, foreign_net, trust_net, dealer_net。"""
+    df = _finmind("TaiwanStockInstitutionalInvestorsBuySell", stock_id, start)
+    if df.empty:
+        return df
+    df = df[df["name"].isin(_INSTITUTION_COLS)].assign(
+        col=lambda d: d["name"].map(_INSTITUTION_COLS),
+        net=lambda d: d["buy"].astype("int64") - d["sell"].astype("int64"))
+    out = df.pivot_table(index="date", columns="col", values="net", aggfunc="sum").reset_index()
+    for c in ("foreign_net", "trust_net", "dealer_net"):  # pivot 後是浮點數，轉回整數，缺值存空值
+        out[c] = out[c].round().astype("Int64").astype(object).where(out[c].notna(), None) if c in out else None
+    out["date"] = pd.to_datetime(out["date"]).dt.date
+    return out[["date", "foreign_net", "trust_net", "dealer_net"]]
+
+
+def fetch_valuation(stock_id: str, start: date) -> pd.DataFrame:
+    """本益比、股價淨值比、殖利率；虧損時 FinMind 的 PER 為 0，改存空值。"""
+    df = _finmind("TaiwanStockPER", stock_id, start)
+    if df.empty:
+        return df
+    df = df.rename(columns={"PER": "per", "PBR": "pbr"})
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["per"] = df["per"].where(df["per"] > 0)
+    return df[["date", "per", "pbr", "dividend_yield"]]

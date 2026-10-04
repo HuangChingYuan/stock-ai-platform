@@ -11,12 +11,23 @@ for _k in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "CEREBRAS_API
 import pytest  # noqa: E402
 
 
-@pytest.fixture
-def db():
+def _drop_all():
+    from sqlalchemy import text
+
     from core import models  # noqa: F401
     from core.db import Base, engine
 
     Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+
+@pytest.fixture
+def db():
+    """用 migration 建表（與正式環境相同），排程的 init_db() 再呼叫時不會重複建表。"""
+    from core.db import init_db
+
+    _drop_all()
+    init_db()
     yield
-    Base.metadata.drop_all(engine)
+    _drop_all()

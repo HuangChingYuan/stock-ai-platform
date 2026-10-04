@@ -19,7 +19,7 @@ SYSTEM_PROMPT = """你是台股研究助理。只能根據使用者提供的資�
 輸出必須是單一 JSON 物件，不要任何其他文字，格式：
 {"action": "買進|觀望|賣出", "confidence": 0-100 的整數,
  "summary": "兩句以內的結論",
- "reasons": ["理由（需引用提供的數據）", ...最多 4 點],
+ "reasons": ["理由（需引用提供的數據，例如指標、法人買賣超、本益比、營收）", ...最多 4 點],
  "risks": ["風險提示", ...最多 3 點]}
 資料不足時 action 請給「觀望」並降低 confidence。這份報告僅供學習研究，不是投資建議。"""
 
@@ -31,6 +31,8 @@ def build_context(session: Session, stock_id: str) -> tuple[str, pd.DataFrame, p
     ind = repo.indicators_df(session, stock_id, limit=60)
     rev = repo.revenue_df(session, stock_id, limit=18)  # 最近 6 個月都要有去年同月才算得出年增率
     news = repo.latest_news(session, stock_id, limit=8)
+    flows = repo.institutional_df(session, stock_id, limit=10)
+    val = repo.valuation_df(session, stock_id, limit=250)
 
     lines = [f"股票：{stock_id} {repo.stock_name(session, stock_id)}"]
     if not prices.empty:
@@ -42,6 +44,10 @@ def build_context(session: Session, stock_id: str) -> tuple[str, pd.DataFrame, p
         lines.append("最新指標：" + ", ".join(
             f"{k}={last[k]:.2f}" for k in ("ma5", "ma20", "ma60", "rsi14", "k", "d", "macd_hist") if pd.notna(last[k])))
         lines.append("技術訊號：" + ("；".join(ta.signals(ind, prices)) or "無明顯訊號"))
+    if not flows.empty:
+        lines.append(_flows_line(flows))
+    if not val.empty:
+        lines.append(_valuation_line(val))
     if not rev.empty:
         lines.append("月營收（年/月：營收 千元, 年增%）：" + "; ".join(
             f"{r.year}/{r.month}: {r.revenue / 1000:,.0f}" + (f", {r.yoy:+.1f}%" if pd.notna(r.yoy) else "")
@@ -49,6 +55,27 @@ def build_context(session: Session, stock_id: str) -> tuple[str, pd.DataFrame, p
     if news:
         lines.append("近期新聞標題：\n" + "\n".join(f"- {n.date:%m/%d} {n.title}（{n.source}）" for n in news if n.date))
     return "\n".join(lines), prices, ind
+
+
+def _flows_line(flows: pd.DataFrame) -> str:
+    """三大法人買賣超換算成張（1 張 = 1000 股），列出每日明細與合計。"""
+    lots = lambda v: f"{v / 1000:+,.0f}" if pd.notna(v) else "—"
+    days = "; ".join(f"{r.date:%m/%d} 外資 {lots(r.foreign_net)} 投信 {lots(r.trust_net)} 自營 {lots(r.dealer_net)}"
+                     for r in flows.itertuples())
+    total = "、".join(f"{label} {lots(flows[col].sum(min_count=1))}"
+                     for label, col in (("外資", "foreign_net"), ("投信", "trust_net"), ("自營", "dealer_net")))
+    return f"近 {len(flows)} 日三大法人買賣超（張）：{days}\n合計：{total}"
+
+
+def _valuation_line(val: pd.DataFrame) -> str:
+    last = val.iloc[-1]
+    parts = [f"{label} {last[col]:.2f}{unit}" for label, col, unit in
+             (("本益比", "per", ""), ("股價淨值比", "pbr", ""), ("殖利率", "dividend_yield", "%")) if pd.notna(last[col])]
+    per = val["per"].dropna()
+    if len(per) >= 20 and pd.notna(last["per"]):
+        parts.append(f"近 {len(per)} 個交易日本益比區間 {per.min():.1f}–{per.max():.1f}"
+                     f"（目前高於 {(per < last['per']).mean() * 100:.0f}% 的日子）")
+    return f"估值（{last['date']:%m/%d}）：" + ("，".join(parts) or "無資料（可能虧損）")
 
 
 def _normalize(data: dict) -> dict:
@@ -67,13 +94,13 @@ def generate(stock_id: str, use_llm: bool = True) -> dict:
     with session_scope() as s:
         context, prices, ind = build_context(s, stock_id)
     result = llm.chat_json(SYSTEM_PROMPT, context) if use_llm else None
+    rule_action, rule_conf, sig = ta.rule_score(ind, prices)  # LLM 成功也記下來，回測時兩者同日比較
 
     if result:
         data, provider, model = result
         data = _normalize(data)
     else:
-        action, conf, sig = ta.rule_score(ind, prices)
-        data = {"action": action, "confidence": conf,
+        data = {"action": rule_action, "confidence": rule_conf,
                 "summary": "未使用 LLM，依技術指標規則判斷。",
                 "reasons": sig or ["資料不足"], "risks": ["僅依技術面判斷，未納入基本面與消息面"]}
         provider, model = "rules", "rule_score"
@@ -84,9 +111,11 @@ def generate(stock_id: str, use_llm: bool = True) -> dict:
             "stock_id": stock_id, "date": day, "action": data["action"], "confidence": data["confidence"],
             "summary": data["summary"], "reasons": "\n".join(data["reasons"]), "risks": "\n".join(data["risks"]),
             "provider": provider, "model": model,
+            "rule_action": rule_action, "rule_confidence": rule_conf, "context": context,
             "created_at": _utcnow(),  # 明確寫入：upsert 更新既有報告時 server_default 不會生效
         }], keys=["stock_id", "date"])
-    return {**data, "stock_id": stock_id, "date": str(day), "provider": provider, "model": model}
+    return {**data, "stock_id": stock_id, "date": str(day), "provider": provider, "model": model,
+            "rule_action": rule_action, "rule_confidence": rule_conf}
 
 
 def _utcnow() -> datetime:
@@ -120,18 +149,24 @@ def regenerate_markdown(stock_id: str) -> str:
     return to_markdown(generate(stock_id), name)
 
 
-def to_markdown(r: Report | dict | None, name: str = "") -> str:
+def to_markdown(r: Report | dict | None, name: str = "", with_context: bool = False) -> str:
     if r is None:
         return "尚無報告。排程每個交易日盤後產生，也可以按「重新產生報告」。"
     get = (lambda k: r.get(k)) if isinstance(r, dict) else (lambda k: getattr(r, k))
     reasons = get("reasons"); risks = get("risks")
     reasons = reasons.split("\n") if isinstance(reasons, str) else reasons
     risks = risks.split("\n") if isinstance(risks, str) else risks
+    rule = (f"規則式判斷：{get('rule_action')}（信心 {get('rule_confidence')}）"
+            if get("provider") != "rules" and get("rule_action") else None)
+    context = get("context") if with_context else None
     return "\n".join([
         f"### {get('stock_id')} {name}　{get('action')}（信心 {get('confidence')}）",
         f"{get('date')}　由 {get('provider')} / {get('model')} 產生", "",
         get("summary") or "", "", "**理由**", *[f"- {x}" for x in reasons if x], "",
         "**風險**", *[f"- {x}" for x in risks if x], "",
+        *([rule, ""] if rule else []),
+        *(["<details><summary>產生報告時提供的資料</summary>", "", "```", context, "```", "</details>", ""]
+          if context else []),
         "> 僅供學習研究，不構成投資建議。",
     ])
 

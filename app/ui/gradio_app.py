@@ -27,7 +27,7 @@ def render(stock_id: str, period: str = "6 個月"):
         ind = repo.indicators_df(s, stock_id, days)
         name = repo.stock_name(s, stock_id)
         sig = ta.signals(ind, prices)
-        md = rpt.to_markdown(repo.latest_report(s, stock_id), name)
+        md = rpt.to_markdown(repo.latest_report(s, stock_id), name, with_context=True)
     fig = charts.kline(prices, ind, f"{stock_id} {name}")
     sig_md = "**今日訊號**　" + ("；".join(sig) if sig else "沒有明顯訊號")
     return fig, sig_md, md

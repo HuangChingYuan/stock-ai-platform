@@ -3,7 +3,7 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import inspect, text
 
 from core import models  # noqa: F401
-from core.db import Base, engine, init_db
+from core.db import ROOT, Base, engine, init_db
 
 
 def _reset():
@@ -25,14 +25,28 @@ def test_fresh_database_matches_models():
     init_db()  # 再跑一次不做任何事
 
 
+def _baseline_schema():
+    """導入 Alembic 前 create_all 建立的結構，等同 0001，但沒有 alembic_version。"""
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "migrations"))
+    with engine.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "0001")
+        conn.execute(text("DROP TABLE alembic_version"))
+
+
 def test_existing_create_all_database_is_stamped_not_rebuilt():
     _reset()
-    Base.metadata.create_all(engine)  # 導入 Alembic 前的建立方式
+    _baseline_schema()
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO stocks (stock_id, name) VALUES ('2330', '台積電')"))
     init_db()
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0001"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0002"
         assert conn.execute(text("SELECT name FROM stocks")).scalar() == "台積電"
     assert "alembic_version" in inspect(engine).get_table_names()
+    assert _diff() == []  # 標記基準版後再升級到最新版
     _reset()
