@@ -10,6 +10,7 @@ Streamlit 無法掛進 ASGI，另外部署在 Streamlit Community Cloud，由 PW
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -21,18 +22,30 @@ from sqlalchemy import func, select
 from app.api import router as api_router
 from app.api import watch_router
 from app.telegram_bot import router as telegram_router
+from app.telegram_bot import sync_webhook
 from core.config import get_settings
 from core.db import engine, init_db, session_scope
 from core.models import DailyPrice
 
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")  # 不送使用統計
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _sync_telegram() -> None:
+    try:
+        log.info("Telegram：%s", sync_webhook())
+    except Exception as exc:  # Telegram 連不上不影響服務啟動，下次啟動再試
+        log.warning("Telegram webhook 設定失敗：%s", exc)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()  # 資料表不存在才建立
+    # 只在 Render 上自動設定（Render 會設 RENDER=true）：本機開發的 secret 不同，不能蓋掉正式的 webhook
+    if os.getenv("RENDER"):
+        asyncio.get_running_loop().run_in_executor(None, _sync_telegram)
     yield
 
 

@@ -143,6 +143,23 @@ def stock_names(session: Session, stock_ids: list[str]) -> dict[str, str]:
     return {sid: names.get(sid, sid) for sid in stock_ids}
 
 
+def find_stocks(session: Session, text: str, limit: int = 6) -> list[tuple[str, str]]:
+    """代號或名稱找股票，回傳 [(代號, 名稱)]。名稱完全相符優先，其次是名稱開頭相符、名稱包含。"""
+    text = (text or "").strip()
+    if not text:
+        return []
+    if valid_stock_id(text.upper()):
+        sid = text.upper()
+        return [(sid, stock_name(session, sid))]
+    for cond in (Stock.name == text, Stock.name.startswith(text, autoescape=True),
+                 Stock.name.contains(text, autoescape=True)):
+        rows = session.execute(select(Stock.stock_id, Stock.name).where(cond)
+                               .order_by(func.length(Stock.stock_id), Stock.stock_id).limit(limit)).all()
+        if rows:
+            return [(sid, name) for sid, name in rows]
+    return []
+
+
 def industries(session: Session) -> list[dict]:
     """各市場（上市、上櫃…）的類股與檔數（FinMind 產業別），檔數多的排前面；沒有產業別的不列。
     market 為 None：股票清單還沒抓到市場別。"""

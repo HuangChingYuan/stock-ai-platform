@@ -30,3 +30,18 @@ def test_health_does_not_touch_database(main, monkeypatch):
 
     monkeypatch.setattr(main, "session_scope", no_db)
     assert c.get("/health").json()["status"] == "ok"
+
+
+def test_telegram_webhook_synced_only_on_render(main, monkeypatch):
+    import threading
+
+    done = threading.Event()
+    monkeypatch.setattr(main, "sync_webhook", lambda: done.set() or "ok")  # 在背景執行緒執行，不擋啟動
+    monkeypatch.delenv("RENDER", raising=False)
+    with TestClient(main.app):
+        pass
+    assert not done.wait(0.2)  # 本機開發不可蓋掉正式 webhook
+    monkeypatch.setenv("RENDER", "true")
+    with TestClient(main.app):
+        pass
+    assert done.wait(5)
