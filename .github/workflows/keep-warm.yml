@@ -12,6 +12,10 @@ jobs:
   ping:
     if: ${{ vars.RENDER_URL != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 10
     steps:
-      - run: curl -fsS --max-time 90 "${{ vars.RENDER_URL }}/health"
+      # 冷啟動（Render 喚醒＋匯入 Gradio/Dash＋init_db 喚醒 Neon）常接近或超過 90 秒，
+      # 單次給 150 秒，逾時或 5xx 再重試兩次
+      - run: >-
+          curl -fsS --max-time 150 --retry 2 --retry-delay 10 --retry-all-errors
+          "${{ vars.RENDER_URL }}/health"
